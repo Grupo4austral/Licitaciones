@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="LicitIA — Licitaciones nacionales para tu empresa." />
+  <title>LicitIA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --ink:#0a0f1e; --ink-2:#3d4a6b; --ink-3:#8895b3;
+      --line:#e4e8f0; --line-2:#c8cfdf;
+      --surface:#ffffff; --surface-2:#f7f8fc; --surface-3:#eef0f7;
+      --blue:#1a3a6b; --blue-lt:#2952a3; --blue-ll:#dce8ff;
+      --gold:#b8902a; --gold-lt:#f5e4b0;
+      --green:#0d7a55; --green-lt:#d4f0e7;
+      --red:#c0392b; --red-lt:#fde8e6;
+      --amber:#d97706; --amber-lt:#fef3c7;
+      --ff-display:'Playfair Display', Georgia, serif;
+      --ff-body:'Geist','Helvetica Neue',sans-serif;
+      --r:6px; --r-lg:12px; --r-xl:20px;
+      --sh-md:0 2px 8px rgba(10,15,30,.08), 0 12px 32px rgba(10,15,30,.08);
+      --t:160ms cubic-bezier(.4,0,.2,1);
+    }
+
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{font-size:16px;scroll-behavior:smooth}
+    body{font-family:var(--ff-body);background:var(--surface-2);color:var(--ink);line-height:1.6;min-height:100vh;-webkit-font-smoothing:antialiased}
+    a{color:var(--blue-lt);text-decoration:none} a:hover{text-decoration:underline}
+    button{cursor:pointer;font-family:var(--ff-body)}
+    input,select,textarea{font-family:var(--ff-body);font-size:.9rem;outline:none}
+    h1,h2,h3,h4{font-family:var(--ff-display);font-weight:600;line-height:1.2;color:var(--ink)}
+
+    .page{display:none}.page.active{display:block}.dash-section{display:none}.dash-section.visible{display:block;animation:fadeUp .25s ease both}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+    .btn{display:inline-flex;align-items:center;gap:.45rem;padding:.6rem 1.25rem;border-radius:var(--r);font-size:.875rem;font-weight:500;border:1.5px solid transparent;transition:all var(--t);white-space:nowrap;line-height:1}
+    .btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}.btn-primary:hover{background:var(--blue-lt);border-color:var(--blue-lt)}
+    .btn-outline{background:transparent;color:var(--blue);border-color:var(--blue-lt)}.btn-outline:hover{background:var(--blue-ll)}
+    .btn-ghost{background:transparent;color:var(--ink-2);border-color:var(--line)}.btn-ghost:hover{background:var(--surface-3);border-color:var(--line-2)}
+    .btn-danger{background:var(--red);color:#fff;border-color:var(--red)}.btn-sm{padding:.4rem .9rem;font-size:.8rem}.btn-xs{padding:.28rem .65rem;font-size:.75rem}.btn:disabled{opacity:.5;cursor:not-allowed}
+
+    .field{display:flex;flex-direction:column;gap:.35rem}.field label{font-size:.75rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+    .input{width:100%;padding:.65rem .85rem;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--r);color:var(--ink);font-size:.9rem;transition:border-color var(--t),box-shadow var(--t)}
+    .input:focus{border-color:var(--blue-lt);box-shadow:0 0 0 3px rgba(41,82,163,.12)}.input::placeholder{color:var(--ink-3)}
+    select.input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238895b3' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .85rem center;padding-right:2.2rem;cursor:pointer}
+    textarea.input{resize:vertical;min-height:90px}
+
+    .tags-wrap{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;width:100%;min-height:44px;padding:.45rem .65rem;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--r);cursor:text;transition:border-color var(--t),box-shadow var(--t)}
+    .tags-wrap:focus-within{border-color:var(--blue-lt);box-shadow:0 0 0 3px rgba(41,82,163,.12)}
+    .tag-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .55rem;border-radius:4px;background:var(--blue-ll);color:var(--blue);font-size:.78rem;font-weight:500}
+    .tag-chip button{background:none;border:none;color:var(--blue);font-size:.85rem;line-height:1;padding:0;opacity:.6}.tag-chip button:hover{opacity:1}.tags-input{border:none;background:transparent;color:var(--ink);font-size:.875rem;flex:1;min-width:100px}
+    .banner{padding:.65rem 1rem;border-radius:var(--r);font-size:.85rem;font-weight:500;display:none}.banner.show{display:block;animation:fadeUp .2s ease}.banner-error{background:var(--red-lt);color:var(--red);border:1px solid #f5c6c2}.banner-success{background:var(--green-lt);color:var(--green);border:1px solid #a7dece}
+    .badge{display:inline-block;padding:.18rem .55rem;border-radius:4px;font-size:.72rem;font-weight:600;letter-spacing:.03em}.badge-blue{background:var(--blue-ll);color:var(--blue)}.badge-green{background:var(--green-lt);color:var(--green)}.badge-amber{background:var(--amber-lt);color:var(--amber)}.badge-red{background:var(--red-lt);color:var(--red)}.badge-gray{background:var(--surface-3);color:var(--ink-2)}
+
+    #page-landing{background:var(--surface);min-height:100vh}.landing-nav{position:sticky;top:0;z-index:90;background:rgba(255,255,255,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--line);padding:0 2.5rem;height:60px;display:flex;align-items:center;justify-content:space-between}.brand{font-family:var(--ff-display);font-size:1.35rem;font-weight:600;color:var(--blue);letter-spacing:-.02em}.brand em{font-style:italic;color:var(--gold)}.landing-nav-links{display:flex;gap:.5rem;align-items:center}
+    .hero{max-width:1200px;margin:0 auto;padding:5rem 2.5rem 4rem;display:grid;grid-template-columns:1fr 1fr;gap:5rem;align-items:center}.hero-kicker{display:inline-flex;align-items:center;gap:.5rem;font-size:.75rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);margin-bottom:1.25rem}.hero-kicker::before{content:'';display:block;width:24px;height:1.5px;background:var(--gold)}.hero-h1{font-size:clamp(2.4rem,4.5vw,3.6rem);line-height:1.08;letter-spacing:-.025em;color:var(--ink);margin-bottom:1.25rem}.hero-h1 em{font-style:italic;color:var(--blue-lt)}.hero-lead{font-size:1.05rem;color:var(--ink-2);line-height:1.75;margin-bottom:2rem;max-width:480px}.hero-actions{display:flex;gap:.75rem;flex-wrap:wrap}
+    .hero-preview{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-xl);padding:1.5rem;box-shadow:var(--sh-md)}.preview-label{font-size:.7rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between}.preview-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 2s ease-in-out infinite}@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+    .preview-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:1rem 1.1rem;margin-bottom:.6rem;display:flex;gap:.85rem;align-items:flex-start;animation:slideCard .5s ease both}.preview-card:nth-child(2){animation-delay:.12s}.preview-card:nth-child(3){animation-delay:.24s}@keyframes slideCard{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}.preview-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0}.preview-icon.blue{background:var(--blue-ll)}.preview-icon.gold{background:var(--gold-lt)}.preview-icon.green{background:var(--green-lt)}.preview-info{flex:1;min-width:0}.preview-title{font-size:.82rem;font-weight:600;color:var(--ink);line-height:1.35;margin-bottom:.25rem}.preview-meta{font-size:.73rem;color:var(--ink-3)}.preview-match{font-size:.7rem;font-weight:700;padding:.2rem .55rem;border-radius:20px;background:var(--green-lt);color:var(--green);white-space:nowrap;flex-shrink:0}.preview-alert{margin-top:.75rem;padding:.65rem .9rem;border-radius:var(--r);background:linear-gradient(135deg,#fff8e7 0%,#fef3c7 100%);border:1px solid var(--amber-lt);font-size:.78rem;color:var(--amber);display:flex;align-items:center;gap:.5rem}
+    .features{border-top:1px solid var(--line);background:var(--surface-2);padding:4rem 2.5rem}.features-inner{max-width:1200px;margin:0 auto}.features-label{font-size:.72rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:center;margin-bottom:2.5rem}.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}.feature-cell{background:var(--surface);padding:2rem 1.75rem;transition:background var(--t)}.feature-cell:hover{background:var(--surface-2)}.feature-num{font-family:var(--ff-display);font-size:2rem;font-weight:400;color:var(--line-2);line-height:1;margin-bottom:.75rem}.feature-title{font-size:1rem;font-weight:600;color:var(--ink);margin-bottom:.5rem}.feature-desc{font-size:.875rem;color:var(--ink-2);line-height:1.65}
+
+    .auth-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--surface-2);padding:2rem}.auth-box{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-xl);padding:2.5rem;box-shadow:var(--sh-md)}.auth-brand{font-family:var(--ff-display);font-size:1.6rem;color:var(--blue);text-align:center;margin-bottom:.35rem}.auth-brand em{color:var(--gold);font-style:italic}.auth-sub{text-align:center;font-size:.875rem;color:var(--ink-3);margin-bottom:1.75rem}.auth-form{display:flex;flex-direction:column;gap:1.1rem}.auth-foot{text-align:center;margin-top:1.25rem;font-size:.825rem;color:var(--ink-3)}.auth-foot a{color:var(--blue-lt);font-weight:500}.auth-divider{text-align:center;margin-top:.75rem}.auth-divider a{font-size:.8rem;color:var(--ink-3)}
+
+    #page-dashboard{min-height:100vh;display:flex;flex-direction:column}.topbar{height:56px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 1.5rem;gap:1rem;position:sticky;top:0;z-index:80;flex-shrink:0}.topbar-brand{font-family:var(--ff-display);font-size:1.2rem;color:var(--blue);letter-spacing:-.02em;margin-right:auto}.topbar-brand em{font-style:italic;color:var(--gold)}.topbar-user{font-size:.825rem;color:var(--ink-2);font-weight:500}.bell-wrap{position:relative}.bell-btn{width:34px;height:34px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;background:transparent;border:1.5px solid var(--line);color:var(--ink-2);font-size:1rem;transition:all var(--t)}.bell-btn:hover{background:var(--surface-3);border-color:var(--line-2)}.bell-count{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;border-radius:8px;background:var(--red);color:#fff;font-size:.65rem;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 3px}.bell-count.show{display:flex}.dash-body{display:flex;flex:1}
+    .sidebar{width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--line);padding:1.25rem .75rem;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}.sidebar-section-label{font-size:.65rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:0 .75rem;margin-bottom:.5rem;margin-top:1rem}.sidebar-section-label:first-child{margin-top:0}.nav-item{display:flex;align-items:center;gap:.65rem;width:100%;padding:.6rem .75rem;border-radius:var(--r);font-size:.875rem;font-weight:500;color:var(--ink-2);background:transparent;border:none;text-align:left;transition:all var(--t);cursor:pointer}.nav-item .ni-icon{font-size:1rem;width:20px;text-align:center;flex-shrink:0}.nav-item:hover{background:var(--surface-2);color:var(--ink)}.nav-item.active{background:var(--blue-ll);color:var(--blue);font-weight:600}.nav-item .nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:.65rem;font-weight:700;padding:.1rem .4rem;border-radius:10px;display:none}.nav-item .nav-badge.show{display:inline-block}.main{flex:1;min-width:0;padding:2rem 2.5rem;background:var(--surface-2)}
+    .section-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;gap:1rem}.section-title{font-size:1.5rem;font-weight:600;color:var(--ink)}.section-sub{font-size:.85rem;color:var(--ink-3);margin-top:.2rem}.search-bar{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}.search-bar .input{flex:1;min-width:200px}.search-bar select.input{flex:0 1 180px}.lic-grid,.fav-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem}.lic-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:1.25rem;transition:box-shadow var(--t),border-color var(--t),transform var(--t);cursor:pointer;display:flex;flex-direction:column;gap:.75rem}.lic-card:hover{box-shadow:var(--sh-md);border-color:var(--line-2);transform:translateY(-1px)}.lic-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem}.lic-title{font-size:.9rem;font-weight:600;color:var(--ink);line-height:1.4;flex:1}.fav-btn{background:none;border:none;font-size:1.1rem;color:var(--line-2);transition:color var(--t);flex-shrink:0;padding:0}.fav-btn:hover,.fav-btn.on{color:var(--gold)}.lic-org{font-size:.78rem;color:var(--ink-3)}.lic-tags{display:flex;gap:.4rem;flex-wrap:wrap}.lic-footer{display:flex;justify-content:space-between;align-items:center;padding-top:.75rem;border-top:1px solid var(--line);font-size:.8rem}.lic-price{font-weight:700;color:var(--ink);font-family:var(--ff-display);font-size:.95rem}.lic-days{font-weight:600}.lic-days.ok{color:var(--green)}.lic-days.warn{color:var(--amber)}.lic-days.urgent{color:var(--red)}.lic-days.closed{color:var(--ink-3)}
+    .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;margin-bottom:1.25rem}.stat-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:1rem 1.25rem}.stat-val{font-family:var(--ff-display);font-size:1.6rem;font-weight:600;color:var(--ink);line-height:1}.stat-label{font-size:.73rem;color:var(--ink-3);margin-top:.35rem;font-weight:500;text-transform:uppercase;letter-spacing:.05em}.pagination{display:flex;justify-content:center;gap:.35rem;margin-top:1.5rem}.empty-state{text-align:center;padding:4rem 2rem;color:var(--ink-3)}.empty-icon{font-size:2.5rem;margin-bottom:1rem}.empty-title{font-size:1rem;font-weight:600;color:var(--ink-2);margin-bottom:.4rem}.spinner-wrap{display:flex;justify-content:center;padding:3rem}.spinner{width:32px;height:32px;border-radius:50%;border:2.5px solid var(--line);border-top-color:var(--blue);animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+    .modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(10,15,30,.35);backdrop-filter:blur(3px);display:flex;justify-content:flex-end;opacity:0;pointer-events:none;transition:opacity .25s ease}.modal-overlay.open{opacity:1;pointer-events:all}.modal-panel{width:min(560px,100vw);height:100%;background:var(--surface);border-left:1px solid var(--line);overflow-y:auto;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1)}.modal-overlay.open .modal-panel{transform:translateX(0)}.modal-head{padding:1.5rem 1.75rem 1.25rem;border-bottom:1px solid var(--line);position:relative}.modal-close{position:absolute;top:1.1rem;right:1.25rem;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-3);font-size:.85rem;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all var(--t)}.modal-close:hover{background:var(--surface-3);color:var(--ink)}.modal-source{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--blue-lt);margin-bottom:.65rem}.modal-title{font-size:1.2rem;line-height:1.35;padding-right:2.5rem;margin-bottom:.5rem}.modal-org{font-size:.82rem;color:var(--ink-3)}.modal-metrics{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border-top:1px solid var(--line)}.metric-cell{background:var(--surface-2);padding:1rem 1.5rem}.metric-val{font-family:var(--ff-display);font-size:1.1rem;font-weight:600}.metric-label{font-size:.7rem;color:var(--ink-3);margin-top:.2rem;text-transform:uppercase;letter-spacing:.05em;font-weight:600}.modal-section{padding:1.25rem 1.75rem;border-bottom:1px solid var(--line)}.modal-section-title{font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:.65rem;font-family:var(--ff-body)}.modal-desc{font-size:.875rem;line-height:1.7;color:var(--ink-2);white-space:pre-wrap}.modal-actions{padding:1.25rem 1.75rem;display:flex;gap:.65rem;flex-wrap:wrap;position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--line);margin-top:auto}
+    .alerta-list{display:flex;flex-direction:column;gap:.6rem}.alerta-item{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:1rem 1.25rem;display:flex;gap:.85rem;align-items:flex-start;transition:border-color var(--t)}.alerta-item.unread{border-left:3px solid var(--blue-lt)}.alerta-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:.4rem}.alerta-dot.unread{background:var(--blue-lt)}.alerta-dot.read{background:var(--line-2)}.alerta-msg{font-size:.875rem;color:var(--ink);line-height:1.5}.alerta-item.read .alerta-msg{color:var(--ink-2)}.alerta-meta{font-size:.75rem;color:var(--ink-3);margin-top:.25rem}.alerta-actions{display:flex;gap:.4rem;margin-left:auto;flex-shrink:0;align-items:center}.perfil-form{max-width:600px;display:flex;flex-direction:column;gap:1.25rem}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+    #ws-container{position:fixed;bottom:1.5rem;right:1.5rem;z-index:300;display:flex;flex-direction:column;gap:.65rem;width:min(360px,calc(100vw - 2rem))}.ws-popup{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:1rem 1.1rem;box-shadow:0 8px 32px rgba(10,15,30,.14),0 2px 8px rgba(10,15,30,.08);animation:popIn .35s cubic-bezier(.34,1.56,.64,1) both;position:relative;border-left:3px solid var(--blue-lt)}@keyframes popIn{from{opacity:0;transform:translateX(40px) scale(.96)}to{opacity:1;transform:translateX(0) scale(1)}}.ws-dismiss{position:absolute;top:.6rem;right:.75rem;background:none;border:none;color:var(--ink-3);font-size:1rem;cursor:pointer}.ws-kicker{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--blue-lt);margin-bottom:.4rem;display:flex;align-items:center;gap:.4rem}.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.5s infinite}.ws-title{font-size:.875rem;font-weight:600;color:var(--ink);margin-bottom:.25rem;padding-right:1.5rem;line-height:1.4}.ws-meta{font-size:.775rem;color:var(--ink-3);margin-bottom:.75rem}.ws-btns{display:flex;gap:.45rem}
+    @media(max-width:900px){.hero{grid-template-columns:1fr;gap:2.5rem;padding:3.5rem 1.25rem 2.5rem}.hero-preview{display:none}.features-grid{grid-template-columns:1fr}.sidebar{display:none}.main{padding:1.25rem}.stats-row{grid-template-columns:1fr 1fr}.form-row{grid-template-columns:1fr}}
+    @media(max-width:600px){.lic-grid,.fav-grid{grid-template-columns:1fr}.stats-row{grid-template-columns:1fr 1fr}.search-bar{flex-direction:column}.landing-nav{padding:0 1rem}.hero-lead{font-size:.98rem}}
+  </style>
+</head>
+<body>
+  <div id="page-landing" class="page active">
+    <nav class="landing-nav">
+      <div class="brand">Licit<em>IA</em></div>
+      <div class="landing-nav-links">
+        <button class="btn btn-ghost btn-sm" id="btn-go-login">Ingresar</button>
+        <button class="btn btn-primary btn-sm" id="btn-go-register">Crear cuenta gratis</button>
+      </div>
+    </nav>
+
+    <div class="hero">
+      <div>
+        <div class="hero-kicker">Para pymes argentinas</div>
+        <h1 class="hero-h1">Las licitaciones<br>del Estado,<br><em>al alcance de todos</em></h1>
+        <p class="hero-lead">LicitIA ayuda a encontrar licitaciones nacionales que encajan con tu empresa. Consultá oportunidades, guardá favoritas y recibí alertas en tiempo real cuando aparece una nueva coincidencia.</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" id="btn-go-register-hero">Empezar gratis</button>
+          <button class="btn btn-outline" id="btn-go-login-hero">Ya tengo cuenta</button>
+        </div>
+      </div>
+
+      <div class="hero-preview">
+        <div class="preview-label">Licitaciones compatibles con tu perfil <span style="display:flex;align-items:center;gap:.4rem;font-size:.7rem;color:var(--green)"><span class="preview-dot"></span> En vivo</span></div>
+        <div class="preview-card"><div class="preview-icon blue">🏢</div><div class="preview-info"><div class="preview-title">Servicio de limpieza integral — Ministerio de Salud</div><div class="preview-meta">Nación · $2.400.000 · Cierra en 8 días</div></div><div class="preview-match">95% match</div></div>
+        <div class="preview-card"><div class="preview-icon gold">🏥</div><div class="preview-info"><div class="preview-title">Provisión de insumos de limpieza — Hospital Nacional</div><div class="preview-meta">Nación · $890.000 · Cierra en 14 días</div></div><div class="preview-match">88% match</div></div>
+        <div class="preview-card"><div class="preview-icon green">🎓</div><div class="preview-info"><div class="preview-title">Mantenimiento edilicio — Universidad Nacional</div><div class="preview-meta">Nación · $1.200.000 · Cierra en 21 días</div></div><div class="preview-match">81% match</div></div>
+        <div class="preview-alert">🔔 <strong>Nueva alerta:</strong>&nbsp;Limpieza — organismo nacional</div>
+      </div>
+    </div>
+
+    <div class="features">
+      <div class="features-inner">
+        <div class="features-label">Por qué LicitIA</div>
+        <div class="features-grid">
+          <div class="feature-cell"><div class="feature-num">01</div><div class="feature-title">Perfil de empresa simple</div><div class="feature-desc">Cargá rubro, zona y palabras clave. El sistema usa ese perfil para buscar oportunidades relevantes.</div></div>
+          <div class="feature-cell"><div class="feature-num">02</div><div class="feature-title">Licitaciones nacionales</div><div class="feature-desc">El backend consume datos públicos de Datos Argentina y COMPR.AR para mostrar oportunidades disponibles.</div></div>
+          <div class="feature-cell"><div class="feature-num">03</div><div class="feature-title">Alertas en tiempo real</div><div class="feature-desc">Con WebSocket, el frontend recibe una notificación cuando aparece una licitación compatible con el perfil.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-login" class="page">
+    <div class="auth-page"><div class="auth-box"><div class="auth-brand">Licit<em>IA</em></div><div class="auth-sub">Ingresá a tu cuenta</div><div id="login-err" class="banner banner-error"></div><form id="login-form" class="auth-form" novalidate><div class="field"><label for="login-email">Email</label><input id="login-email" class="input" type="email" placeholder="tu@empresa.com" required autocomplete="email" /></div><div class="field"><label for="login-pass">Contraseña</label><input id="login-pass" class="input" type="password" placeholder="••••••••" required autocomplete="current-password" /></div><button id="login-btn" type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Ingresar</button></form><div class="auth-foot">¿No tenés cuenta? <a href="#" id="lnk-to-register">Registrate gratis</a></div><div class="auth-divider"><a href="#" id="lnk-login-to-landing">← Volver al inicio</a></div></div></div>
+  </div>
+
+  <div id="page-register" class="page">
+    <div class="auth-page"><div class="auth-box"><div class="auth-brand">Licit<em>IA</em></div><div class="auth-sub">Creá tu cuenta gratis</div><div id="reg-err" class="banner banner-error"></div><form id="reg-form" class="auth-form" novalidate><div class="field"><label for="reg-nombre">Tu nombre</label><input id="reg-nombre" class="input" type="text" placeholder="María García" required autocomplete="name" /></div><div class="field"><label for="reg-email">Email</label><input id="reg-email" class="input" type="email" placeholder="tu@empresa.com" required autocomplete="email" /></div><div class="field"><label for="reg-pass">Contraseña</label><input id="reg-pass" class="input" type="password" placeholder="Mínimo 6 caracteres" required minlength="6" autocomplete="new-password" /></div><button id="reg-btn" type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Crear cuenta</button></form><div class="auth-foot">¿Ya tenés cuenta? <a href="#" id="lnk-to-login">Ingresá acá</a></div><div class="auth-divider"><a href="#" id="lnk-reg-to-landing">← Volver al inicio</a></div></div></div>
+  </div>
+
+  <div id="page-dashboard" class="page">
+    <div class="topbar"><div class="topbar-brand">Licit<em>IA</em></div><span class="topbar-user" id="topbar-name"></span><div class="bell-wrap"><button class="bell-btn" id="bell-btn" title="Alertas" aria-label="Ver alertas">🔔</button><span class="bell-count" id="bell-count"></span></div><button class="btn btn-ghost btn-sm" id="logout-btn">Salir</button></div>
+    <div class="dash-body">
+      <aside class="sidebar"><div class="sidebar-section-label">Principal</div><button class="nav-item active" data-sec="licitaciones"><span class="ni-icon">🔍</span> Licitaciones</button><button class="nav-item" data-sec="favoritos"><span class="ni-icon">★</span> Favoritos</button><div class="sidebar-section-label">Notificaciones</div><button class="nav-item" data-sec="alertas"><span class="ni-icon">🔔</span> Alertas <span class="nav-badge" id="sidebar-alert-badge"></span></button><div class="sidebar-section-label">Configuración</div><button class="nav-item" data-sec="perfil"><span class="ni-icon">👤</span> Mi empresa</button></aside>
+      <main class="main">
+        <div id="sec-licitaciones" class="dash-section visible"><div id="sec-lic-inner"><div class="spinner-wrap"><div class="spinner"></div></div></div></div>
+        <div id="sec-favoritos" class="dash-section"><div class="section-head"><div><div class="section-title">Favoritos</div><div class="section-sub">Licitaciones que guardaste para revisar</div></div></div><div id="sec-fav-inner"><div class="spinner-wrap"><div class="spinner"></div></div></div></div>
+        <div id="sec-alertas" class="dash-section"><div id="sec-alerta-inner"><div class="spinner-wrap"><div class="spinner"></div></div></div></div>
+        <div id="sec-perfil" class="dash-section"><div id="sec-perfil-inner"><div class="spinner-wrap"><div class="spinner"></div></div></div></div>
+      </main>
+    </div>
+  </div>
+
+  <div id="modal-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-label="Detalle de licitación"><div class="modal-panel" id="modal-panel"><div class="modal-head"><button class="modal-close" id="modal-close">✕</button><div id="modal-content"><div class="spinner-wrap"><div class="spinner"></div></div></div></div></div></div>
+  <div id="ws-container" aria-live="polite" aria-label="Alertas en tiempo real"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

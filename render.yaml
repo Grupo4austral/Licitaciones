@@ -1,0 +1,23 @@
+# render.yaml — configuración de despliegue para Render.com
+# https://render.com/docs/yaml-spec
+
+services:
+  - type: web
+    name: licitia-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false          # Se carga desde el dashboard de Render
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true  # Render genera un secreto automáticamente
+      - key: FRONTEND_URL
+        value: https://licitia.vercel.app   # Actualizar con tu URL real
+    healthCheckPath: /api/health
+    autoDeploy: true
