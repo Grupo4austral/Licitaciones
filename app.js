@@ -125,7 +125,7 @@ async function initDashboard(user) {
   }
 
   // Conectar WebSocket con el userId del usuario autenticado
-  ws.connect(user.id, async (_licitacion) => {
+  ws.connect(user.id, auth.getToken(), async (_licitacion) => {
     // Callback: se ejecuta cuando llega una nueva licitación por WS
     // Refrescar lista y alertas para que el usuario las vea sin recargar
     await licView.refresh();
