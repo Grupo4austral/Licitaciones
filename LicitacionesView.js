@@ -244,7 +244,7 @@ export class LicitacionesView {
   }
 
   #filtrarVigentes(licitaciones) {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = this.#fechaLocalISO(new Date());
     return (licitaciones || []).filter(lic => !lic.fecha_cierre || lic.fecha_cierre >= hoy);
   }
 
@@ -276,6 +276,35 @@ export class LicitacionesView {
     const fecha = lic.fecha_publicacion || lic.fecha_cierre;
     const time = fecha ? new Date(`${fecha}T00:00:00`).getTime() : 0;
     return Number.isFinite(time) ? time : 0;
+  }
+
+  #favoriteKey(lic) {
+    return this.#favoriteKeys(lic)[0] || '';
+  }
+
+  #favoriteKeys(lic) {
+    return [
+      lic?.url_original,
+      lic?.numero_proceso,
+      lic?.datos_originales?.numero_proceso,
+      lic?.datos_originales?.external_id,
+      lic?.id,
+    ].filter(Boolean).map(String);
+  }
+
+  #diasRestantes(fecha) {
+    if (!fecha) return null;
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const cierre = new Date(`${fecha}T00:00:00`);
+    return Math.ceil((cierre - hoy) / 86_400_000);
+  }
+
+  #fechaLocalISO(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   /** Llama al backend de LicitIA */
@@ -384,7 +413,8 @@ export class LicitacionesView {
     const card  = document.createElement('div');
     card.className = 'lic-card';
 
-    const isFav = this.#favoritos.has(String(lic.id));
+    const favKeys = this.#favoriteKeys(lic);
+    const isFav = favKeys.some((key) => this.#favoritos.has(key));
     const insight = lic.ia_match ? {
       score: lic.ia_match,
       motivo: lic.ia_motivo,
@@ -399,13 +429,12 @@ export class LicitacionesView {
       ia_criterios: insight.criterios,
     };
 
-    const diasRestantes = lic.fecha_cierre
-      ? Math.ceil((new Date(lic.fecha_cierre) - Date.now()) / 86_400_000)
-      : null;
+    const diasRestantes = this.#diasRestantes(lic.fecha_cierre);
 
     let diasClass = 'ok', diasLabel = '';
     if (diasRestantes !== null) {
-      if (diasRestantes <= 0)  { diasLabel = 'Cerrada';           diasClass = 'closed'; }
+      if (diasRestantes < 0)  { diasLabel = 'Cerrada';           diasClass = 'closed'; }
+      else if (diasRestantes === 0) { diasLabel = 'Hoy'; diasClass = 'urgent'; }
       else if (diasRestantes <= 3) { diasLabel = `${diasRestantes}d`; diasClass = 'urgent'; }
       else if (diasRestantes <= 7) { diasLabel = `${diasRestantes}d`; diasClass = 'warn';   }
       else                         { diasLabel = `${diasRestantes}d`; diasClass = 'ok';     }
@@ -464,25 +493,35 @@ export class LicitacionesView {
 
   async #toggleFavorito(lic, btn) {
     const licId = String(lic.id);
-    const dbId = this.#favoritoIdPorExterno.get(licId) || licId;
-    const isFav = this.#favoritos.has(licId);
+    const favKeys = this.#favoriteKeys(lic);
+    const dbId = favKeys.map((key) => this.#favoritoIdPorExterno.get(key)).find(Boolean) ||
+      this.#favoritoIdPorExterno.get(licId) ||
+      licId;
+    const isFav = favKeys.some((key) => this.#favoritos.has(key));
     btn.disabled = true;
     try {
       if (isFav) {
         await this.#api.removeFavorito(dbId);
+        favKeys.forEach((key) => this.#favoritos.delete(key));
         this.#favoritos.delete(licId);
         this.#favoritos.delete(dbId);
+        favKeys.forEach((key) => this.#favoritoIdPorExterno.delete(key));
         this.#favoritoIdPorExterno.delete(licId);
         btn.textContent = '☆';
         btn.classList.remove('on');
+        btn.title = 'Guardar';
+        document.dispatchEvent(new CustomEvent('licitia:favoritos-actualizados'));
       } else {
         const favorito = await this.#api.addFavorito(licId, lic);
         const nuevoDbId = favorito.licitacion_id || favorito.licitaciones?.id || licId;
+        favKeys.forEach((key) => this.#favoritos.add(key));
         this.#favoritos.add(licId);
         this.#favoritos.add(String(nuevoDbId));
+        favKeys.forEach((key) => this.#favoritoIdPorExterno.set(key, String(nuevoDbId)));
         this.#favoritoIdPorExterno.set(licId, String(nuevoDbId));
         btn.textContent = '★';
         btn.classList.add('on');
+        btn.title = 'Quitar de favoritos';
         document.dispatchEvent(new CustomEvent('licitia:favoritos-actualizados'));
       }
     } catch (err) {
@@ -573,7 +612,7 @@ export class LicitacionesView {
     ];
 
     const detectados = rubros.filter(([, claves]) => claves.some((clave) => texto.includes(clave)));
-    const dias = lic.fecha_cierre ? Math.ceil((new Date(lic.fecha_cierre) - Date.now()) / 86_400_000) : 10;
+    const dias = this.#diasRestantes(lic.fecha_cierre) ?? 10;
     const rubroTokens = rubroPerfil.split(/\s+/).filter((word) => word.length > 3);
     const descripcionTokens = descripcionPerfil.split(/\s+/).filter((word) => word.length > 4);
     const busquedaTokens = busqueda.split(/\s+/).filter((word) => word.length > 3);

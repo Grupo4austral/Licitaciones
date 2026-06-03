@@ -53,14 +53,12 @@ export class FavoritosView {
       const card = document.createElement('div');
       card.className = 'lic-card';
 
-      const diasRestantes = lic.fecha_cierre
-        ? Math.ceil((new Date(lic.fecha_cierre) - new Date()) / 86400000)
-        : null;
+      const diasRestantes = this.#diasRestantes(lic.fecha_cierre);
 
       let diasClass = 'ok', diasLabel = '';
       if (diasRestantes !== null) {
-        diasLabel = diasRestantes <= 0 ? 'Cerrada' : `${diasRestantes}d`;
-        if (diasRestantes <= 3) diasClass = 'urgente';
+        diasLabel = diasRestantes < 0 ? 'Cerrada' : diasRestantes === 0 ? 'Hoy' : `${diasRestantes}d`;
+        if (diasRestantes <= 3 && diasRestantes >= 0) diasClass = 'urgente';
         else if (diasRestantes <= 7) diasClass = 'pronto';
       }
 
@@ -125,6 +123,14 @@ export class FavoritosView {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  #diasRestantes(fecha) {
+    if (!fecha) return null;
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const cierre = new Date(`${fecha}T00:00:00`);
+    return Math.ceil((cierre - hoy) / 86400000);
   }
 
   async refresh() {

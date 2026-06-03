@@ -111,13 +111,12 @@ export class DetalleModal {
   }
 
   #renderDetalle(lic) {
-    const diasRestantes = lic.fecha_cierre
-      ? Math.ceil((new Date(lic.fecha_cierre) - new Date()) / 86400000)
-      : null;
+    const diasRestantes = this.#diasRestantes(lic.fecha_cierre);
 
     let diasClass = 'ok', diasLabel = '—';
     if (diasRestantes !== null) {
-      if (diasRestantes <= 0) { diasLabel = 'Cerrada'; diasClass = 'closed'; }
+      if (diasRestantes < 0) { diasLabel = 'Cerrada'; diasClass = 'closed'; }
+      else if (diasRestantes === 0) { diasLabel = 'Hoy'; diasClass = 'urgent'; }
       else if (diasRestantes <= 3) { diasLabel = `${diasRestantes} días`; diasClass = 'urgent'; }
       else if (diasRestantes <= 7) { diasLabel = `${diasRestantes} días`; diasClass = 'warn'; }
       else { diasLabel = `${diasRestantes} días`; }
@@ -855,6 +854,14 @@ export class DetalleModal {
 
   #pareceUuid(value) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+  }
+
+  #diasRestantes(fecha) {
+    if (!fecha) return null;
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const cierre = new Date(`${fecha}T00:00:00`);
+    return Math.ceil((cierre - hoy) / 86400000);
   }
 
   #esc(str) {
