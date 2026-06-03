@@ -7,8 +7,8 @@ export const alertasRouter = Router();
 
 alertasRouter.post('/recordatorios/run', authMiddleware, async (_req, res) => {
   try {
-    await recordatoriosFavoritosService.checkAndNotify();
-    return res.json({ mensaje: 'Revisión de recordatorios ejecutada' });
+    const resultado = await recordatoriosFavoritosService.checkAndNotify();
+    return res.json({ mensaje: 'Revisión de recordatorios ejecutada', resultado });
   } catch (err) {
     return res.status(500).json({ error: 'Error al ejecutar recordatorios', detalle: err.message });
   }

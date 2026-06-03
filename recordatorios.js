@@ -23,8 +23,18 @@ class RecordatoriosFavoritosService {
   }
 
   async checkAndNotify() {
-    if (this.#running) return;
+    if (this.#running) return { running: true };
     this.#running = true;
+    const stats = {
+      favoritosRevisados: 0,
+      favoritosEnVentana: 0,
+      sinPerfilEmail: 0,
+      yaTenianRecordatorio: 0,
+      alertasCreadas: 0,
+      emailsEnviados: 0,
+      emailsOmitidosSinConfig: 0,
+      erroresEmail: [],
+    };
 
     try {
       const days = Number(process.env.REMINDER_DAYS_BEFORE || DEFAULT_DAYS);
@@ -37,28 +47,33 @@ class RecordatoriosFavoritosService {
           usuario_id,
           licitacion_id,
           licitaciones (id, titulo, organismo, fecha_cierre, url_original)
-        `)
-        .gte('licitaciones.fecha_cierre', hoy)
-        .lte('licitaciones.fecha_cierre', limite);
+        `);
 
       if (error) throw error;
+      stats.favoritosRevisados = favoritos?.length || 0;
 
       const usuarios = [...new Set((favoritos || []).map((fav) => fav.usuario_id).filter(Boolean))];
       const perfiles = await this.#obtenerPerfiles(usuarios);
 
-      let creadas = 0;
-      let emails = 0;
-
       for (const fav of favoritos || []) {
         const lic = fav.licitaciones;
         const perfil = perfiles.get(fav.usuario_id);
-        if (!lic?.fecha_cierre || !perfil?.email) continue;
+        if (!lic?.fecha_cierre) continue;
 
         const dias = this.#diasHasta(lic.fecha_cierre);
         if (dias < 0 || dias > days) continue;
+        stats.favoritosEnVentana++;
+
+        if (!perfil?.email) {
+          stats.sinPerfilEmail++;
+          continue;
+        }
 
         const yaExiste = await this.#yaTieneRecordatorio(fav.usuario_id, lic.id);
-        if (yaExiste) continue;
+        if (yaExiste) {
+          stats.yaTenianRecordatorio++;
+          continue;
+        }
 
         const mensaje = this.#mensaje(lic, dias);
         const { error: insertError } = await supabase.from('alertas').insert({
@@ -69,7 +84,7 @@ class RecordatoriosFavoritosService {
         });
 
         if (insertError) throw insertError;
-        creadas++;
+        stats.alertasCreadas++;
 
         wsManager.notificarNuevaLicitacion(fav.usuario_id, {
           ...lic,
@@ -77,14 +92,18 @@ class RecordatoriosFavoritosService {
         });
 
         const enviado = await this.#enviarEmail({ perfil, lic, dias, mensaje });
-        if (enviado) emails++;
+        if (enviado.ok) stats.emailsEnviados++;
+        else if (enviado.reason === 'missing_config') stats.emailsOmitidosSinConfig++;
+        else stats.erroresEmail.push(enviado.error || 'Error desconocido');
       }
 
-      if (creadas || emails) {
-        console.log(`[Recordatorios] Alertas creadas: ${creadas}. Emails enviados: ${emails}.`);
+      if (stats.alertasCreadas || stats.emailsEnviados || stats.erroresEmail.length) {
+        console.log(`[Recordatorios] Alertas creadas: ${stats.alertasCreadas}. Emails enviados: ${stats.emailsEnviados}.`);
       }
+      return stats;
     } catch (err) {
       console.error('[Recordatorios] Error:', err.message);
+      return { ...stats, error: err.message };
     } finally {
       this.#running = false;
     }
@@ -118,7 +137,9 @@ class RecordatoriosFavoritosService {
   }
 
   async #enviarEmail({ perfil, lic, dias, mensaje }) {
-    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) return false;
+    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+      return { ok: false, reason: 'missing_config' };
+    }
 
     const subject = dias === 0
       ? `Hoy vence una licitación favorita`
@@ -153,10 +174,10 @@ class RecordatoriosFavoritosService {
     if (!response.ok) {
       const errorText = await response.text();
       console.warn(`[Recordatorios] No se pudo enviar email a ${perfil.email}: ${errorText}`);
-      return false;
+      return { ok: false, reason: 'resend_error', error: errorText };
     }
 
-    return true;
+    return { ok: true };
   }
 
   #mensaje(lic, dias) {
