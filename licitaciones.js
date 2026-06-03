@@ -8,16 +8,12 @@
  */
 
 import { Router } from 'express';
-import { supabase } from '../config/supabase.js';
-import { authMiddleware } from '../middleware/auth.js';
-import { wsManager } from '../services/websocket.js';
+import { supabase } from './supabase.js';
+import { authMiddleware } from './auth.js';
+import { datosGobArService } from './datosGobAr.js';
+import { wsManager } from './websocket.js';
 
 export const licitacionesRouter = Router();
-
-// Parámetros de la API pública de datos.gob.ar (ONC — Argentina Compra)
-const CKAN_BASE  = 'https://datos.gob.ar/api/3/action/datastore_search';
-// Resource ID principal: dataset de contrataciones ONC 2022-2024
-const RESOURCE_ID = 'fd9a6c4c-0b47-4ca4-8f08-a2e0d75c3c63';
 
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -63,16 +59,18 @@ const RESOURCE_ID = 'fd9a6c4c-0b47-4ca4-8f08-a2e0d75c3c63';
  *                 totalPaginas: { type: integer }
  */
 licitacionesRouter.get('/', authMiddleware, async (req, res) => {
-  const { rubro, provincia, q, page = 1, limit = 20 } = req.query;
+  const { rubro, provincia, q, page = 1, limit = 500 } = req.query;
   const pageNum  = Math.max(1, parseInt(page));
-  const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+  const limitNum = Math.min(500, Math.max(1, parseInt(limit)));
   const offset   = (pageNum - 1) * limitNum;
+  const hoy = new Date().toISOString().split('T')[0];
 
   try {
     let query = supabase
       .from('licitaciones')
       .select('*', { count: 'exact' })
-      .order('fecha_publicacion', { ascending: false })
+      .or(`fecha_cierre.is.null,fecha_cierre.gte.${hoy}`)
+      .order('fecha_cierre', { ascending: true, nullsFirst: false })
       .range(offset, offset + limitNum - 1);
 
     if (rubro)    query = query.ilike('rubro', `%${rubro}%`);
@@ -98,12 +96,11 @@ licitacionesRouter.get('/', authMiddleware, async (req, res) => {
  * @swagger
  * /licitaciones/externas:
  *   get:
- *     summary: Consulta en tiempo real a datos.gob.ar (API CKAN de la ONC)
+ *     summary: Consulta oportunidades nacionales actuales desde fuente pública oficial
  *     description: |
- *       Hace un GET directo a https://datos.gob.ar/api/3/action/datastore_search
- *       con el resource_id del dataset de contrataciones de la Oficina Nacional de
- *       Contrataciones (ONC). No requiere clave de API. Retorna los registros crudos
- *       transformados al esquema de LicitIA.
+ *       Consulta COMPR.AR, portal público oficial de contrataciones de bienes y
+ *       servicios de la Administración Pública Nacional. No requiere clave de API.
+ *       datos.gob.ar/CKAN se conserva como referencia de datos abiertos históricos.
  *     tags: [Licitaciones]
  *     security:
  *       - bearerAuth: []
@@ -111,79 +108,36 @@ licitacionesRouter.get('/', authMiddleware, async (req, res) => {
  *       - in: query
  *         name: q
  *         schema: { type: string }
- *         description: Búsqueda libre (se pasa como parámetro q a la API CKAN)
+ *         description: Búsqueda libre en número, título, tipo u organismo
  *       - in: query
  *         name: limit
- *         schema: { type: integer, default: 20, maximum: 100 }
+ *         schema: { type: integer, default: 500, maximum: 500 }
  *       - in: query
  *         name: offset
  *         schema: { type: integer, default: 0 }
  *     responses:
  *       200:
- *         description: Registros crudos de datos.gob.ar transformados
+ *         description: Licitaciones públicas nacionales transformadas al esquema LicitIA
  *       502:
  *         description: Error al conectar con datos.gob.ar
  */
-licitacionesRouter.get('/externas', authMiddleware, async (req, res) => {
-  const { q, limit = 20, offset = 0 } = req.query;
-  const limitNum  = Math.min(100, Math.max(1, parseInt(limit)));
-  const offsetNum = Math.max(0, parseInt(offset));
+licitacionesRouter.get('/externas', async (req, res) => {
+  const { q, limit = 500 } = req.query;
+  const limitNum  = Math.min(500, Math.max(1, parseInt(limit)));
 
   try {
-    const params = new URLSearchParams({
-      resource_id: RESOURCE_ID,
-      limit:       limitNum,
-      offset:      offsetNum,
-      sort:        'fecha_publicacion_convocatoria desc',
-    });
-    if (q) params.set('q', q);
-
-    const url      = `${CKAN_BASE}?${params}`;
-    const response = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal:  AbortSignal.timeout(12000),
-    });
-
-    if (!response.ok) {
-      return res.status(502).json({
-        error: `datos.gob.ar respondió con HTTP ${response.status}`,
-      });
-    }
-
-    const json = await response.json();
-    if (!json.success) {
-      return res.status(502).json({ error: 'La API de datos.gob.ar reportó un error', detalle: json.error });
-    }
-
-    const records = json.result?.records || [];
-
-    // Transformar al esquema de LicitIA para que el frontend lo entienda igual
-    const licitaciones = records.map(r => ({
-      id:                   r._id,
-      fuente:               'datos.gob.ar / ONC',
-      titulo:               r.nombre_procedimiento || r.descripcion_objeto || `Proceso ${r._id}`,
-      organismo:            r.organismo_nombre || r.unidad_operativa_contrataciones_nombre || null,
-      descripcion:          r.descripcion_objeto || r.fundamento || null,
-      rubro:                r.rubro_nombre || r.descripcion_tipo_procedimiento || null,
-      provincia:            r.provincia_nombre || r.jurisdiccion_nombre || null,
-      fecha_publicacion:    r.fecha_publicacion_convocatoria || null,
-      fecha_cierre:         r.fecha_apertura_convocatoria || null,
-      presupuesto_estimado: parseFloat(r.monto_total_adjudicado || 0) || null,
-      url_original:         `https://comprar.gob.ar/proceso/${r._id}`,
-      _raw:                 r,
-    }));
+    const licitaciones = await datosGobArService.fetchOportunidadesActuales({ q, limit: limitNum });
 
     return res.json({
       licitaciones,
-      total:   json.result?.total || records.length,
-      fuente:  'datos.gob.ar',
-      recurso: RESOURCE_ID,
+      total: licitaciones.length,
+      fuente: 'COMPR.AR',
     });
   } catch (err) {
     if (err.name === 'TimeoutError') {
-      return res.status(504).json({ error: 'Timeout al consultar datos.gob.ar' });
+      return res.status(504).json({ error: 'Timeout al consultar COMPR.AR' });
     }
-    return res.status(502).json({ error: 'Error al consultar datos.gob.ar', detalle: err.message });
+    return res.status(502).json({ error: 'Error al consultar COMPR.AR', detalle: err.message });
   }
 });
 

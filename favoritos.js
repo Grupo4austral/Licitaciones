@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { supabase } from '../config/supabase.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { supabase } from './supabase.js';
+import { authMiddleware } from './auth.js';
 
 export const favoritosRouter = Router();
 
@@ -61,17 +61,33 @@ favoritosRouter.get('/', authMiddleware, async (req, res) => {
  *         description: Ya estaba en favoritos
  */
 favoritosRouter.post('/', authMiddleware, async (req, res) => {
-  const { licitacion_id } = req.body;
+  let { licitacion_id } = req.body;
+  const { licitacion } = req.body;
 
   if (!licitacion_id) {
     return res.status(400).json({ error: 'Se requiere licitacion_id' });
   }
 
   try {
+    if (!pareceUuid(licitacion_id)) {
+      if (!licitacion?.titulo) {
+        return res.status(400).json({
+          error: 'Para guardar una licitación externa se requiere enviar sus datos',
+        });
+      }
+      const guardada = await guardarLicitacionExterna(licitacion, licitacion_id);
+      licitacion_id = guardada.id;
+    }
+
     const { data, error } = await supabase
       .from('favoritos')
       .insert({ usuario_id: req.user.id, licitacion_id })
-      .select()
+      .select(`
+        id,
+        licitacion_id,
+        creado_en,
+        licitaciones (*)
+      `)
       .single();
 
     if (error) {
@@ -107,11 +123,21 @@ favoritosRouter.post('/', authMiddleware, async (req, res) => {
  */
 favoritosRouter.delete('/:licitacion_id', authMiddleware, async (req, res) => {
   try {
+    let licitacionId = req.params.licitacion_id;
+    if (!pareceUuid(licitacionId)) {
+      const { data: lic } = await supabase
+        .from('licitaciones')
+        .select('id')
+        .or(`url_original.eq.${licitacionId},datos_originales->>numero_proceso.eq.${licitacionId}`)
+        .maybeSingle();
+      if (lic?.id) licitacionId = lic.id;
+    }
+
     const { data, error } = await supabase
       .from('favoritos')
       .delete()
       .eq('usuario_id', req.user.id)
-      .eq('licitacion_id', req.params.licitacion_id)
+      .eq('licitacion_id', licitacionId)
       .select();
 
     if (error) throw error;
@@ -123,3 +149,65 @@ favoritosRouter.delete('/:licitacion_id', authMiddleware, async (req, res) => {
     return res.status(500).json({ error: 'Error al eliminar favorito', detalle: err.message });
   }
 });
+
+function pareceUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
+async function guardarLicitacionExterna(licitacion, externalId) {
+  const url = licitacion.url_original || null;
+  const numero = licitacion.numero_proceso || licitacion.id || externalId;
+
+  let query = supabase
+    .from('licitaciones')
+    .select('*');
+
+  if (url) {
+    query = query.eq('url_original', url);
+  } else {
+    query = query.eq('titulo', licitacion.titulo).eq('fecha_cierre', licitacion.fecha_cierre || null);
+  }
+
+  const { data: existente, error: fetchError } = await query
+    .limit(1)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (existente) return existente;
+
+  const { data, error } = await supabase
+    .from('licitaciones')
+    .insert({
+      fuente: recortar(licitacion.fuente || 'COMPR.AR', 100),
+      titulo: licitacion.titulo,
+      organismo: recortar(licitacion.organismo, 200),
+      descripcion: licitacion.descripcion || null,
+      rubro: recortar(licitacion.rubro, 100),
+      provincia: recortar(licitacion.provincia, 100),
+      fecha_publicacion: licitacion.fecha_publicacion || null,
+      fecha_cierre: licitacion.fecha_cierre || null,
+      presupuesto_estimado: normalizarMonto(licitacion.presupuesto_estimado),
+      url_original: url,
+      datos_originales: {
+        ...(licitacion.datos_originales || {}),
+        numero_proceso: numero,
+        external_id: externalId,
+      },
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+function recortar(value, max) {
+  if (!value) return null;
+  const text = String(value);
+  return text.length > max ? text.slice(0, max) : text;
+}
+
+function normalizarMonto(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}

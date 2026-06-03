@@ -20,7 +20,7 @@ export class AlertasView {
       <div class="section-header">
         <div>
           <h2 class="section-title">Alertas</h2>
-          <p class="section-subtitle">Notificaciones de licitaciones que coinciden con tu perfil</p>
+          <p class="section-sub">Notificaciones de licitaciones que coinciden con tu perfil</p>
         </div>
         <button id="marcar-todas-btn" class="btn btn-ghost btn-sm">Marcar todas como leídas</button>
       </div>
@@ -31,7 +31,7 @@ export class AlertasView {
       </div>
 
       <div id="alertas-list">
-        <div class="loader"><div class="spinner"></div></div>
+        <div class="spinner-wrap"><div class="spinner"></div></div>
       </div>
     `;
 
@@ -56,13 +56,18 @@ export class AlertasView {
 
   async #loadAlertas(soloNoLeidas = false) {
     const list = document.getElementById('alertas-list');
-    list.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+    list.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
 
     try {
       const alertas = await this.#api.getAlertas(soloNoLeidas);
       this.#renderAlertas(alertas, list);
     } catch (err) {
-      list.innerHTML = `<p style="color:var(--color-muted)">Error al cargar alertas: ${err.message}</p>`;
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🔔</div>
+          <div class="empty-title">No pudimos cargar alertas</div>
+          <p>${err.message}</p>
+        </div>`;
     }
   }
 
@@ -70,8 +75,8 @@ export class AlertasView {
     if (!alertas.length) {
       container.innerHTML = `
         <div class="empty-state">
-          <div class="empty-state-icon">🔔</div>
-          <h3>Sin alertas por ahora</h3>
+          <div class="empty-icon">🔔</div>
+          <div class="empty-title">Sin alertas por ahora</div>
           <p>Cuando aparezca una licitación compatible con tu perfil, te avisamos acá</p>
         </div>
       `;

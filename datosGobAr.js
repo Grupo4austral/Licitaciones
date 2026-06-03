@@ -1,200 +1,357 @@
 /**
- * datosGobAr.js — Servicio de ingesta de licitaciones desde la API pública argentina
+ * datosGobAr.js — Servicio de ingesta de licitaciones nacionales.
  *
- * Fuente oficial: datos.gob.ar — API CKAN de la Oficina Nacional de Contrataciones (ONC)
- * Dataset: Sistema de Contrataciones Electrónicas (Argentina Compra / COMPR.AR)
- * URL dataset: https://datos.gob.ar/dataset/jgm-sistema-contrataciones-electronicas-argentina-compra
+ * Fuente actual:
+ *   COMPR.AR (https://comprar.gob.ar), portal publico oficial de contrataciones
+ *   de bienes y servicios de la Administracion Publica Nacional.
  *
- * La API CKAN es pública, gratuita y no requiere autenticación.
- * Endpoint base: https://datos.gob.ar/api/3/action/datastore_search
+ * Fuente de datos abiertos historica:
+ *   datos.gob.ar publica el dataset "Sistema de Contrataciones Electronicas"
+ *   de la ONC mediante CKAN. Ese catalogo es util como respaldo/documentacion,
+ *   pero no esta actualizado con la frecuencia necesaria para alertas en vivo.
  *
- * Campos que usa el endpoint (los que existen en los recursos de la ONC):
- *   - orden_compra_id_externo          → nuestro campo url_original (construido)
- *   - organismo_nombre                 → organismo
- *   - nombre_sucursal                  → título complementario
- *   - descripcion_tipo_procedimiento   → tipo de licitación (rubro aproximado)
- *   - descripcion_unidad_operativa     → organismo secundario
- *   - fecha_publicacion_convocatoria   → fecha_publicacion
- *   - fecha_apertura_convocatoria      → fecha_cierre
- *   - moneda_descripcion               → moneda
- *   - monto_total_adjudicado           → presupuesto_estimado
- *   - descripcion_clase                → descripción de la clase de contratación
- *   - rubro_nombre                     → rubro
- *
- * Resource IDs conocidos del dataset de la ONC en datos.gob.ar:
- *   fa3603b3-0af7-43cc-9da9-90a512217d8a  → convocatorias 2015
- *   fd9a6c4c-0b47-4ca4-8f08-a2e0d75c3c63  → contrataciones 2022–2024 (más reciente disponible)
- *
- * ESTRATEGIA DE POLLING:
- *   - El servicio corre cada POLL_INTERVAL_MS (configurable, default 5 minutos)
- *   - Trae los últimos BATCH_SIZE registros ordenados por fecha_publicacion DESC
- *   - Compara con los ya guardados en Supabase usando url_original como deduplicación
- *   - Los nuevos se insertan en la tabla `licitaciones` y se dispara WebSocket
+ * Estrategia:
+ *   - Polling periodico sobre la pagina publica de COMPR.AR.
+ *   - Transformacion al esquema de LicitIA.
+ *   - Deduplicacion por url_original.
+ *   - Persistencia en Supabase.
+ *   - Notificacion por WebSocket + alerta persistente cuando aparece algo nuevo.
  */
 
-import { supabase } from '../config/supabase.js';
+import { supabase } from './supabase.js';
 import { wsManager } from './websocket.js';
 
-// ── Configuración ──────────────────────────────────────────────────────────────
-
-const CKAN_BASE = 'https://datos.gob.ar/api/3/action/datastore_search';
-
-/**
- * Resource IDs del dataset de contrataciones de la ONC.
- * Se consultan en orden; si uno falla se intenta el siguiente.
- *
- * Para encontrar otros: https://datos.gob.ar/dataset/jgm-sistema-contrataciones-electronicas-argentina-compra
- */
-const RESOURCE_IDS = [
-  'fd9a6c4c-0b47-4ca4-8f08-a2e0d75c3c63', // contrataciones 2022-2024
-  'fa3603b3-0af7-43cc-9da9-90a512217d8a', // convocatorias abiertas 2015 (fallback)
-];
-
-const BATCH_SIZE        = 50;    // registros a traer por ciclo
-const POLL_INTERVAL_MS  = 5 * 60 * 1000;  // 5 minutos entre polls
-const COMPRAR_BASE_URL  = 'https://comprar.gob.ar';
-
-// ── Clase principal ────────────────────────────────────────────────────────────
+const COMPRAR_BASE_URL = 'https://comprar.gob.ar';
+const COMPRAR_HOME_URL = `${COMPRAR_BASE_URL}/`;
+const COMPRAR_APERTURA_PROXIMA_URL = `${COMPRAR_BASE_URL}/Compras.aspx?qs=W1HXHGHtH10=`;
+const COMPRAR_APERTURA_PROXIMA_POST_URL = `${COMPRAR_BASE_URL}/Compras.aspx?qs=W1HXHGHtH10%3d&AspxAutoDetectCookieSupport=1`;
+const POLL_INTERVAL_MS = parseInt(process.env.LICITACIONES_POLL_MS || '', 10) || 5 * 60 * 1000;
+const DEFAULT_LIMIT = 500;
 
 class DatosGobArService {
   #timer;
   #corriendo;
 
   constructor() {
-    this.#timer     = null;
+    this.#timer = null;
     this.#corriendo = false;
   }
 
-  /**
-   * Arranca el polling periódico.
-   * Se llama una sola vez desde server.js al inicializar la app.
-   */
   start() {
     if (this.#corriendo) return;
     this.#corriendo = true;
-    console.log(`[API-ONC] Servicio de ingesta iniciado. Poll cada ${POLL_INTERVAL_MS / 60000} min.`);
 
-    // Primera ingesta al arrancar (sin esperar el intervalo)
+    console.log(`[COMPR.AR] Servicio de ingesta iniciado. Poll cada ${Math.round(POLL_INTERVAL_MS / 1000)}s.`);
     this.#poll();
-
-    // Siguientes ingestas periódicas
     this.#timer = setInterval(() => this.#poll(), POLL_INTERVAL_MS);
   }
 
-  /**
-   * Detiene el polling (útil para tests o shutdown graceful).
-   */
   stop() {
     if (this.#timer) clearInterval(this.#timer);
     this.#corriendo = false;
-    console.log('[API-ONC] Servicio de ingesta detenido.');
+    console.log('[COMPR.AR] Servicio de ingesta detenido.');
   }
 
-  // ── Lógica interna ───────────────────────────────────────────────────────────
+  async fetchOportunidadesActuales({ q = '', limit = DEFAULT_LIMIT } = {}) {
+    const licitaciones = await this.#fetchAperturaProxima({ limit });
+    const normalizada = this.#normalizarTexto(q);
+
+    return licitaciones
+      .filter((lic) => this.#esVigente(lic))
+      .filter((lic) => {
+        if (!normalizada) return true;
+        const haystack = this.#normalizarTexto([
+          lic.numero_proceso,
+          lic.titulo,
+          lic.descripcion,
+          lic.organismo,
+          lic.rubro,
+        ].filter(Boolean).join(' '));
+        return haystack.includes(normalizada);
+      })
+      .slice(0, limit);
+  }
 
   async #poll() {
-    console.log('[API-ONC] Iniciando ciclo de ingesta...');
-    let ingestadas = 0;
-
-    for (const resourceId of RESOURCE_IDS) {
-      try {
-        const registros = await this.#fetchDesdeAPI(resourceId);
-        if (!registros || registros.length === 0) continue;
-
-        const nuevas = await this.#filtrarNuevas(registros);
-        if (nuevas.length === 0) {
-          console.log(`[API-ONC] Sin licitaciones nuevas en recurso ${resourceId}`);
-          continue;
-        }
-
-        const insertadas = await this.#persistir(nuevas);
-        ingestadas += insertadas.length;
-
-        // Notificar por WebSocket a usuarios compatibles
-        for (const lic of insertadas) {
-          await this.#notificar(lic);
-        }
-
-        console.log(`[API-ONC] ${insertadas.length} licitaciones nuevas ingresadas del recurso ${resourceId}`);
-        break; // Si el primer recurso funcionó, no consultar el fallback
-      } catch (err) {
-        console.error(`[API-ONC] Error con recurso ${resourceId}:`, err.message);
-        // Continuar con el siguiente resource_id
+    try {
+      const licitaciones = await this.fetchOportunidadesActuales({ limit: DEFAULT_LIMIT });
+      if (licitaciones.length === 0) {
+        console.log('[COMPR.AR] No se detectaron procesos en la fuente publica.');
+        return;
       }
-    }
 
-    if (ingestadas === 0) {
-      console.log('[API-ONC] Ciclo completado sin novedades.');
+      const nuevas = await this.#filtrarNuevas(licitaciones);
+      if (nuevas.length === 0) {
+        console.log('[COMPR.AR] Sin licitaciones nuevas.');
+        return;
+      }
+
+      const insertadas = await this.#persistir(nuevas);
+      for (const licitacion of insertadas) {
+        await this.#notificar(licitacion);
+      }
+
+      console.log(`[COMPR.AR] ${insertadas.length} licitacion/es nuevas ingresadas.`);
+    } catch (err) {
+      console.error('[COMPR.AR] Error durante la ingesta:', err.message);
     }
   }
 
-  /**
-   * Llama a la API CKAN de datos.gob.ar y retorna los registros crudos.
-   * Documentación CKAN: https://www.datos.gob.ar/acerca/ckan
-   */
-  async #fetchDesdeAPI(resourceId) {
-    const params = new URLSearchParams({
-      resource_id: resourceId,
-      limit:       BATCH_SIZE,
-      // Ordenar por fecha de publicación descendente para traer las más recientes
-      // CKAN acepta el parámetro sort con formato "campo asc|desc"
-      sort:        'fecha_publicacion_convocatoria desc',
-    });
-
-    const url = `${CKAN_BASE}?${params}`;
-    console.log(`[API-ONC] GET ${url}`);
-
-    const response = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
-      signal:  AbortSignal.timeout(15000), // 15s timeout
+  async #fetchComprarHome() {
+    const response = await fetch(COMPRAR_HOME_URL, {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': 'LicitIA/1.0 (+https://licitia.local)',
+      },
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status} al consultar datos.gob.ar`);
+      throw new Error(`COMPR.AR respondio con HTTP ${response.status}`);
     }
 
-    const json = await response.json();
-
-    if (!json.success) {
-      throw new Error(`CKAN error: ${json.error?.message || 'respuesta fallida'}`);
-    }
-
-    return json.result?.records || [];
+    return response.text();
   }
 
-  /**
-   * Filtra los registros que ya están en nuestra base de datos.
-   * Usa url_original como campo de deduplicación.
-   */
-  async #filtrarNuevas(registros) {
-    // Construir las URLs identificadoras de todos los registros recibidos
-    const urls = registros
-      .map(r => this.#construirUrl(r))
+  async #fetchAperturaProxima({ limit = DEFAULT_LIMIT } = {}) {
+    const jar = new Map();
+    let html = await this.#fetchComprarHtml(COMPRAR_APERTURA_PROXIMA_URL, { jar });
+    let licitaciones = this.#parseComprarAperturaProxima(html);
+    const visitadas = new Set(['Page$1']);
+    const pendientes = this.#extraerLinksPaginador(html)
+      .filter((eventArg) => !visitadas.has(eventArg))
+      .map((eventArg) => ({ eventArg, htmlOrigen: html }));
+
+    while (pendientes.length > 0 && licitaciones.length < limit) {
+      const { eventArg, htmlOrigen } = pendientes.shift();
+      if (visitadas.has(eventArg)) continue;
+      visitadas.add(eventArg);
+
+      const fields = this.#extraerHiddenInputs(htmlOrigen);
+      fields.set('__EVENTTARGET', 'ctl00$CPH1$GridListaPliegosAperturaProxima');
+      fields.set('__EVENTARGUMENT', eventArg);
+
+      html = await this.#fetchComprarHtml(COMPRAR_APERTURA_PROXIMA_POST_URL, {
+        jar,
+        method: 'POST',
+        body: fields,
+      });
+
+      licitaciones = licitaciones.concat(this.#parseComprarAperturaProxima(html));
+      for (const nuevoEventArg of this.#extraerLinksPaginador(html)) {
+        if (visitadas.has(nuevoEventArg)) continue;
+        if (pendientes.some((item) => item.eventArg === nuevoEventArg)) continue;
+        pendientes.push({ eventArg: nuevoEventArg, htmlOrigen: html });
+      }
+    }
+
+    return this.#dedupe(licitaciones).slice(0, limit);
+  }
+
+  async #fetchComprarHtml(url, { jar, method = 'GET', body = null } = {}) {
+    const headers = {
+      Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': 'LicitIA/1.0 (+https://licitia.local)',
+    };
+
+    if (jar?.size) headers.Cookie = this.#cookieHeader(jar);
+    if (method === 'POST') {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      headers.Origin = COMPRAR_BASE_URL;
+      headers.Referer = COMPRAR_APERTURA_PROXIMA_URL;
+    }
+
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body ? body.toString() : null,
+      signal: AbortSignal.timeout(15000),
+    });
+
+    this.#guardarCookies(response, jar);
+
+    if (!response.ok) {
+      throw new Error(`COMPR.AR respondio con HTTP ${response.status}`);
+    }
+
+    return response.text();
+  }
+
+  #guardarCookies(response, jar) {
+    if (!jar) return;
+    const setCookies = typeof response.headers.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : [response.headers.get('set-cookie')].filter(Boolean);
+
+    for (const rawCookie of setCookies) {
+      for (const cookie of String(rawCookie).split(/,(?=[^;,]+=)/)) {
+        const pair = cookie.split(';')[0];
+        const idx = pair.indexOf('=');
+        if (idx <= 0) continue;
+        jar.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim());
+      }
+    }
+  }
+
+  #cookieHeader(jar) {
+    return [...jar.entries()].map(([key, value]) => `${key}=${value}`).join('; ');
+  }
+
+  #parseComprarHome(html) {
+    const text = this.#htmlToText(html);
+    const lines = text
+      .split('\n')
+      .map((line) => line.trim())
       .filter(Boolean);
 
-    if (urls.length === 0) return [];
+    const licitaciones = this.#parseFilasConSeparadores(text);
+    const procesoRegex = /^\d{1,5}\/\d{1,4}-\d{3,5}-[A-Z]{2,5}\d{2}$/;
 
-    // Consultar cuáles de esas URLs ya existen en Supabase
-    const { data: existentes } = await supabase
-      .from('licitaciones')
-      .select('url_original')
-      .in('url_original', urls);
+    for (let i = 0; i < lines.length; i++) {
+      const numeroProceso = lines[i];
+      if (!procesoRegex.test(numeroProceso)) continue;
 
-    const urlsExistentes = new Set((existentes || []).map(e => e.url_original));
+      const titulo = lines[i + 1];
+      const tipo = lines[i + 2];
+      const fechaCierreTexto = lines[i + 3];
 
-    // Retornar solo los que no existen aún
-    return registros.filter(r => {
-      const url = this.#construirUrl(r);
-      return url && !urlsExistentes.has(url);
-    });
+      if (!titulo || !tipo || !this.#pareceFechaArgentina(fechaCierreTexto)) continue;
+
+      licitaciones.push(this.#crearLicitacionDesdeComprar({
+        numeroProceso,
+        titulo,
+        tipo,
+        fechaCierreTexto,
+      }));
+    }
+
+    return this.#dedupe(licitaciones);
   }
 
-  /**
-   * Inserta las licitaciones nuevas en Supabase.
-   * Retorna los registros efectivamente insertados (con su UUID asignado).
-   */
-  async #persistir(registros) {
-    const filas = registros.map(r => this.#transformar(r));
+  #parseComprarAperturaProxima(html) {
+    const licitaciones = [];
+    const tableMatch = html.match(/<table[^>]+id="ctl00_CPH1_GridListaPliegosAperturaProxima"[\s\S]*?<\/table>/i);
+    if (!tableMatch) return licitaciones;
+
+    const rowRegex = /<tr(?![^>]*class="pagination-gv")[^>]*>([\s\S]*?)<\/tr>/gi;
+    for (const rowMatch of tableMatch[0].matchAll(rowRegex)) {
+      const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+        .map((cell) => this.#htmlToText(cell[1]).trim())
+        .filter(Boolean);
+
+      if (cells.length < 7) continue;
+      const [numeroProceso, titulo, tipo, fechaCierreTexto, estado, unidadEjecutora, servicioAdministrativo] = cells;
+      if (!/^\d{1,5}\/\d{1,4}-\d{3,5}-[A-Z]{2,5}\d{2}$/.test(numeroProceso)) continue;
+
+      licitaciones.push(this.#crearLicitacionDesdeComprar({
+        numeroProceso,
+        titulo,
+        tipo,
+        fechaCierreTexto,
+        organismo: unidadEjecutora,
+        estado,
+        servicioAdministrativo,
+        urlOriginal: COMPRAR_APERTURA_PROXIMA_URL,
+      }));
+    }
+
+    return licitaciones;
+  }
+
+  #parseFilasConSeparadores(text) {
+    const licitaciones = [];
+    const rowRegex = /(\d{1,5}\/\d{1,4}-\d{3,5}-[A-Z]{2,5}\d{2})\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)\s*\|\s*(\d{2}\/\d{2}\/\d{4}[^\n|]*)/g;
+
+    for (const match of text.matchAll(rowRegex)) {
+      const [, numeroProceso, titulo, tipo, fechaCierreTexto] = match;
+      licitaciones.push(this.#crearLicitacionDesdeComprar({
+        numeroProceso,
+        titulo,
+        tipo,
+        fechaCierreTexto,
+      }));
+    }
+
+    return licitaciones;
+  }
+
+  #crearLicitacionDesdeComprar({
+    numeroProceso,
+    titulo,
+    tipo,
+    fechaCierreTexto,
+    organismo = null,
+    estado = null,
+    servicioAdministrativo = null,
+    urlOriginal = `${COMPRAR_BASE_URL}/BuscarAvanzado.aspx`,
+  }) {
+    return {
+      id: numeroProceso,
+      fuente: 'COMPR.AR',
+      numero_proceso: numeroProceso,
+      titulo: this.#limpiar(titulo),
+      organismo: this.#limpiar(organismo),
+      descripcion: this.#limpiar(`${tipo}. Estado: ${estado || 'Publicado'}. Apertura/cierre ${fechaCierreTexto}. ${servicioAdministrativo || ''}`),
+      rubro: this.#limpiar(tipo),
+      provincia: null,
+      fecha_publicacion: new Date().toISOString().split('T')[0],
+      fecha_cierre: this.#parseFechaArgentina(fechaCierreTexto),
+      presupuesto_estimado: null,
+      url_original: `${urlOriginal}${urlOriginal.includes('?') ? '&' : '?'}proceso=${encodeURIComponent(numeroProceso)}`,
+      datos_originales: {
+        fuente: 'COMPR.AR',
+        numero_proceso: numeroProceso,
+        tipo,
+        estado,
+        unidad_ejecutora: organismo,
+        servicio_administrativo: servicioAdministrativo,
+        fecha_cierre_texto: fechaCierreTexto,
+        capturado_en: new Date().toISOString(),
+      },
+    };
+  }
+
+  #esVigente(licitacion) {
+    if (!licitacion.fecha_cierre) return true;
+    const hoy = new Date().toISOString().split('T')[0];
+    return licitacion.fecha_cierre >= hoy;
+  }
+
+  async #filtrarNuevas(licitaciones) {
+    const urls = licitaciones.map((lic) => lic.url_original).filter(Boolean);
+    if (urls.length === 0) return [];
+
+    const data = [];
+    const batchSize = 80;
+    for (let i = 0; i < urls.length; i += batchSize) {
+      const batch = urls.slice(i, i + batchSize);
+      const { data: rows, error } = await supabase
+        .from('licitaciones')
+        .select('url_original')
+        .in('url_original', batch);
+
+      if (error) throw error;
+      data.push(...(rows || []));
+    }
+
+    const existentes = new Set((data || []).map((row) => row.url_original));
+    return licitaciones.filter((lic) => !existentes.has(lic.url_original));
+  }
+
+  async #persistir(licitaciones) {
+    const filas = licitaciones.map((lic) => ({
+      fuente: lic.fuente,
+      titulo: lic.titulo,
+      organismo: lic.organismo,
+      descripcion: lic.descripcion,
+      rubro: lic.rubro,
+      provincia: lic.provincia,
+      fecha_publicacion: lic.fecha_publicacion,
+      fecha_cierre: lic.fecha_cierre,
+      presupuesto_estimado: lic.presupuesto_estimado,
+      url_original: lic.url_original,
+      datos_originales: lic.datos_originales,
+    }));
 
     const { data, error } = await supabase
       .from('licitaciones')
@@ -202,157 +359,172 @@ class DatosGobArService {
       .select();
 
     if (error) {
-      console.error('[API-ONC] Error al insertar en Supabase:', error.message);
+      console.error('[COMPR.AR] Error al insertar en Supabase:', error.message);
       return [];
     }
 
     return data || [];
   }
 
-  /**
-   * Notifica por WebSocket a todos los usuarios con perfiles compatibles.
-   * Compatibilidad simple: coincidencia de rubro o provincia.
-   * También persiste la alerta en la tabla `alertas`.
-   */
   async #notificar(licitacion) {
     try {
-      let query = supabase
+      const { data: perfiles, error } = await supabase
         .from('perfiles_empresa')
-        .select('usuario_id, rubro, provincia');
+        .select('usuario_id, rubro, provincia, palabras_clave');
 
-      const { data: perfiles, error } = await query;
       if (error || !perfiles) return;
 
       for (const perfil of perfiles) {
-        const rubroMatch = licitacion.rubro && perfil.rubro &&
-          licitacion.rubro.toLowerCase().includes(perfil.rubro.toLowerCase().split(' ')[0]);
+        if (!this.#esCompatible(licitacion, perfil)) continue;
 
-        const provinciaMatch = !licitacion.provincia ||
-          !perfil.provincia ||
-          licitacion.provincia.toLowerCase().includes(perfil.provincia.toLowerCase().split(' ')[0]);
-
-        if (!rubroMatch && !provinciaMatch) continue;
-
-        // Enviar por WebSocket (si el usuario está conectado en este momento)
         wsManager.notificarNuevaLicitacion(perfil.usuario_id, licitacion);
 
-        // Guardar en tabla alertas para cuando el usuario no esté conectado
         await supabase.from('alertas').insert({
-          usuario_id:    perfil.usuario_id,
+          usuario_id: perfil.usuario_id,
           licitacion_id: licitacion.id,
-          mensaje:       `Nueva licitación: "${licitacion.titulo}" — ${licitacion.organismo || 'Organismo público'}`,
+          mensaje: `Nueva licitacion nacional: "${licitacion.titulo}"`,
         });
       }
     } catch (err) {
-      console.error('[API-ONC] Error al notificar:', err.message);
+      console.error('[COMPR.AR] Error al notificar:', err.message);
     }
   }
 
-  // ── Helpers de transformación ────────────────────────────────────────────────
+  #esCompatible(licitacion, perfil) {
+    const textoLicitacion = this.#normalizarTexto([
+      licitacion.titulo,
+      licitacion.descripcion,
+      licitacion.rubro,
+      licitacion.provincia,
+    ].filter(Boolean).join(' '));
 
-  /**
-   * Construye la URL identificadora de un registro de la ONC.
-   * Se usa como clave de deduplicación en url_original.
-   */
-  #construirUrl(r) {
-    const id = r._id || r.orden_compra_id_externo || r.proceso_compra_id_externo;
-    if (!id) return null;
-    return `${COMPRAR_BASE_URL}/proceso/${id}`;
+    const rubro = this.#normalizarTexto(perfil.rubro || '');
+    const provincia = this.#normalizarTexto(perfil.provincia || '');
+    const palabrasClave = Array.isArray(perfil.palabras_clave) ? perfil.palabras_clave : [];
+
+    const rubroOk = rubro && rubro.split(/\s+/).some((word) => word.length > 3 && textoLicitacion.includes(word));
+    const provinciaOk = provincia && textoLicitacion.includes(provincia);
+    const keywordsOk = palabrasClave.some((word) => {
+      const normalizada = this.#normalizarTexto(word);
+      return normalizada.length > 3 && textoLicitacion.includes(normalizada);
+    });
+
+    return rubroOk || provinciaOk || keywordsOk;
   }
 
-  /**
-   * Transforma un registro crudo de la API CKAN al esquema de la tabla `licitaciones`.
-   *
-   * Los campos de la API de la ONC varían según el recurso consultado.
-   * Esta función intenta mapear los campos más comunes con fallbacks.
-   */
-  #transformar(r) {
-    // Título: combinar nombre del procedimiento + organismo si está disponible
-    const titulo = this.#limpiar(
-      r.nombre_procedimiento ||
-      r.descripcion_objeto ||
-      r.objeto_contratacion ||
-      r.descripcion ||
-      `Proceso de contratación ${r._id || ''}`
-    );
-
-    const organismo = this.#limpiar(
-      r.organismo_nombre ||
-      r.unidad_operativa_contrataciones_nombre ||
-      r.organismo ||
-      null
-    );
-
-    const rubro = this.#limpiar(
-      r.rubro_nombre ||
-      r.rubro ||
-      r.descripcion_tipo_procedimiento ||
-      r.descripcion_clase ||
-      null
-    );
-
-    const provincia = this.#limpiar(
-      r.provincia_nombre ||
-      r.jurisdiccion_nombre ||
-      null
-    );
-
-    // Fechas: la API puede traerlas en distintos formatos
-    const fechaPub   = this.#parseFecha(r.fecha_publicacion_convocatoria || r.fecha_publicacion);
-    const fechaCierre = this.#parseFecha(r.fecha_apertura_convocatoria   || r.fecha_cierre || r.fecha_limite_presentacion);
-
-    // Presupuesto
-    const presupuesto = parseFloat(
-      r.monto_total_adjudicado || r.presupuesto_oficial || r.monto_estimado || 0
-    ) || null;
-
-    // URL original para deduplicación y enlace al portal oficial
-    const urlOriginal = this.#construirUrl(r);
-
-    return {
-      fuente:                'datos.gob.ar / ONC — Argentina Compra',
-      titulo,
-      organismo,
-      descripcion:           this.#limpiar(r.descripcion_objeto || r.fundamento || null),
-      rubro,
-      provincia,
-      fecha_publicacion:     fechaPub,
-      fecha_cierre:          fechaCierre,
-      presupuesto_estimado:  presupuesto,
-      url_original:          urlOriginal,
-      datos_originales:      r,      // guardamos el registro completo en JSONB por si se necesita
-    };
+  #htmlToText(html) {
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, '\n')
+      .replace(/<style[\s\S]*?<\/style>/gi, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|tr|td|th|span|h\d)>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s+/g, '\n');
   }
 
-  /** Limpia strings vacíos o con solo espacios */
-  #limpiar(val) {
-    if (!val || typeof val !== 'string') return null;
-    const s = val.trim();
-    return s.length > 0 ? s : null;
+  #pareceFechaArgentina(value) {
+    return /^\d{2}\/\d{2}\/\d{4}/.test(String(value || ''));
   }
 
-  /**
-   * Parsea una fecha que puede venir en formatos ISO, DD/MM/YYYY o similares.
-   * Retorna string 'YYYY-MM-DD' o null.
-   */
-  #parseFecha(val) {
-    if (!val) return null;
-    try {
-      // Formato argentino DD/MM/YYYY o DD-MM-YYYY
-      const arMatch = String(val).match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
-      if (arMatch) {
-        const [, d, m, y] = arMatch;
-        return `${y}-${m}-${d}`;
-      }
-      // ISO o cualquier otro formato que Date entienda
-      const date = new Date(val);
-      if (isNaN(date.getTime())) return null;
-      return date.toISOString().split('T')[0];
-    } catch {
-      return null;
+  #parseFechaArgentina(value) {
+    const match = String(value || '').match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (!match) return null;
+    const [, day, month, year] = match;
+    return `${year}-${month}-${day}`;
+  }
+
+  #extraerTotalResultados(html) {
+    const match = String(html || '').match(/Se han encontrado\s*\((\d+)\)/i);
+    return match ? Number(match[1]) : null;
+  }
+
+  #extraerHiddenInputs(html) {
+    const fields = new URLSearchParams();
+    const inputRegex = /<input\b[^>]*type="hidden"[^>]*>/gi;
+
+    for (const match of String(html || '').matchAll(inputRegex)) {
+      const tag = match[0];
+      const name = this.#extraerAtributo(tag, 'name');
+      if (!name) continue;
+      fields.set(name, this.#decodeHtml(this.#extraerAtributo(tag, 'value') || ''));
     }
+
+    if (!fields.has('__EVENTTARGET')) fields.set('__EVENTTARGET', '');
+    if (!fields.has('__EVENTARGUMENT')) fields.set('__EVENTARGUMENT', '');
+    return fields;
+  }
+
+  #extraerLinksPaginador(html) {
+    const links = [];
+    const regex = /__doPostBack\(&#39;ctl00\$CPH1\$GridListaPliegosAperturaProxima&#39;,&#39;(Page\$\d+)&#39;\)/g;
+
+    for (const match of String(html || '').matchAll(regex)) {
+      links.push(match[1]);
+    }
+
+    return [...new Set(links)].sort((a, b) => {
+      const pageA = Number(a.split('$')[1]);
+      const pageB = Number(b.split('$')[1]);
+      return pageA - pageB;
+    });
+  }
+
+  #extraerAtributo(tag, attr) {
+    const match = String(tag || '').match(new RegExp(`${attr}="([^"]*)"`, 'i'));
+    return match ? match[1] : null;
+  }
+
+  #normalizarTexto(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  #limpiar(value) {
+    if (!value || typeof value !== 'string') return null;
+    const limpio = this.#decodeHtml(value)
+      .replace(/\s+/g, ' ')
+      .trim();
+    return limpio || null;
+  }
+
+  #decodeHtml(value) {
+    return String(value || '')
+      .replace(/&#(\d+);/g, (_match, code) => String.fromCharCode(Number(code)))
+      .replace(/&#x([a-f0-9]+);/gi, (_match, code) => String.fromCharCode(parseInt(code, 16)))
+      .replace(/&aacute;/gi, 'á')
+      .replace(/&eacute;/gi, 'é')
+      .replace(/&iacute;/gi, 'í')
+      .replace(/&oacute;/gi, 'ó')
+      .replace(/&uacute;/gi, 'ú')
+      .replace(/&ntilde;/gi, 'ñ')
+      .replace(/&Aacute;/g, 'Á')
+      .replace(/&Eacute;/g, 'É')
+      .replace(/&Iacute;/g, 'Í')
+      .replace(/&Oacute;/g, 'Ó')
+      .replace(/&Uacute;/g, 'Ú')
+      .replace(/&Ntilde;/g, 'Ñ')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  }
+
+  #dedupe(licitaciones) {
+    const vistas = new Set();
+    return licitaciones.filter((lic) => {
+      if (vistas.has(lic.url_original)) return false;
+      vistas.add(lic.url_original);
+      return true;
+    });
   }
 }
 
-// ── Singleton exportado ────────────────────────────────────────────────────────
 export const datosGobArService = new DatosGobArService();

@@ -138,14 +138,29 @@ Las tablas están definidas en el SQL provisto. El backend usa el cliente con `s
 
 ### Backend (Render)
 1. Crear Web Service en [render.com](https://render.com)
-2. Root directory: `backend/`
+2. Root directory: `.`
 3. Build command: `npm install`
 4. Start command: `node server.js`
 5. Agregar variables de entorno del `.env`
 
 ### Frontend (GitHub Pages / Vercel / Netlify)
 Subir el directorio `frontend/` como sitio estático.
-Actualizar `API_URL` y `WS_URL` en `js/app.js` con la URL de producción del backend.
+Actualizar `API_URL` y `WS_URL` en `app.js` con la URL de producción del backend.
+
+---
+
+## Fuente nacional de licitaciones
+
+LicitIA consulta oportunidades actuales desde el portal público oficial COMPR.AR (`https://comprar.gob.ar`) y las normaliza al esquema interno de `licitaciones`.
+
+El backend ejecuta un polling periódico desde `datosGobAr.js`:
+- detecta procesos nuevos publicados en COMPR.AR;
+- evita duplicados usando `url_original`;
+- guarda los registros en Supabase;
+- dispara WebSocket para usuarios compatibles;
+- persiste alertas para usuarios desconectados.
+
+También queda documentada la fuente histórica de datos abiertos de la ONC en datos.gob.ar, útil como referencia y respaldo, pero no suficiente para alertas en tiempo real por su frecuencia de actualización.
 
 ---
 

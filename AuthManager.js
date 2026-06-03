@@ -52,15 +52,15 @@ export class AuthManager {
 
   // ── Acciones ─────────────────────────────────────────────────────────────────
 
-  async login(email, password) {
-    const data = await this.#api.login(email, password);
+  async login(cuit, password) {
+    const data = await this.#api.login(cuit, password);
     this.#guardarSesion(data.usuario, data.token);
     if (this.#onLoginCallback) this.#onLoginCallback(data.usuario);
     return data.usuario;
   }
 
-  async register(nombre, email, password) {
-    const data = await this.#api.register(nombre, email, password);
+  async register(nombre, cuit, email, password) {
+    const data = await this.#api.register(nombre, cuit, email, password);
     this.#guardarSesion(data.usuario, data.token);
     if (this.#onLoginCallback) this.#onLoginCallback(data.usuario);
     return data.usuario;

@@ -19,36 +19,53 @@ export class PerfilView {
 
   #render() {
     this.#container.innerHTML = `
-      <div class="section-header">
+      <div class="section-head">
         <div>
-          <h2 class="section-title">Perfil de empresa</h2>
-          <p class="section-subtitle">Tu perfil determina qué licitaciones te recomendamos</p>
+          <div class="section-title">Mi empresa</div>
+          <div class="section-sub">Onboarding conversacional para construir el perfil de matching</div>
         </div>
       </div>
 
-      <div id="perfil-success-msg" class="error-msg" style="background:rgba(34,197,94,0.1);border-color:rgba(34,197,94,0.3);color:#86efac;margin-bottom:1rem;"></div>
-      <div id="perfil-error-msg" class="error-msg"></div>
+      <div class="onboarding-panel">
+        <div class="field">
+          <label for="p-conversacion">Contale a LicitIA qué hace tu empresa</label>
+          <textarea id="p-conversacion" class="input" placeholder="Ej: Somos una pyme de limpieza de Pilar. Hacemos limpieza integral, mantenimiento, sanitización y provisión de insumos. Podemos trabajar en Buenos Aires y CABA con equipos de hasta 20 personas. Buscamos contratos mensuales o trimestrales con organismos públicos."></textarea>
+        </div>
+        <div class="onboarding-actions">
+          <button type="button" class="btn btn-primary" id="perfil-ai-btn">Construir perfil con IA</button>
+          <span class="onboarding-hint">MVP: interpreta rubro, zona y palabras clave desde tu descripción.</span>
+        </div>
+      </div>
+
+      <div class="profile-summary">
+        <div class="profile-pill"><span>Rubro detectado</span><strong id="profile-rubro-preview">A completar</strong></div>
+        <div class="profile-pill"><span>Zona</span><strong id="profile-zona-preview">A completar</strong></div>
+        <div class="profile-pill"><span>Palabras clave</span><strong id="profile-keywords-preview">A completar</strong></div>
+      </div>
+
+      <div id="perfil-success-msg" class="banner banner-success"></div>
+      <div id="perfil-error-msg" class="banner banner-error"></div>
 
       <form class="perfil-form" id="perfil-form" novalidate>
-        <div class="form-group">
+        <div class="field">
           <label for="p-nombre">Nombre de la empresa</label>
-          <input id="p-nombre" class="form-control" type="text" placeholder="Ej: Limpieza Total SRL" />
+          <input id="p-nombre" class="input" type="text" placeholder="Ej: Limpieza Total SRL" />
         </div>
 
-        <div class="form-group">
+        <div class="field">
           <label for="p-rubro">Rubro principal</label>
-          <input id="p-rubro" class="form-control" type="text" placeholder="Ej: Servicios de limpieza" />
+          <input id="p-rubro" class="input" type="text" placeholder="Ej: Servicios de limpieza" />
         </div>
 
-        <div class="form-group">
+        <div class="field">
           <label for="p-descripcion">Descripción de la empresa</label>
-          <textarea id="p-descripcion" class="form-control" placeholder="Contanos qué hace tu empresa, qué productos o servicios ofrecen…"></textarea>
+          <textarea id="p-descripcion" class="input" placeholder="Contanos qué hace tu empresa, qué productos o servicios ofrecen…"></textarea>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
-          <div class="form-group">
+        <div class="form-row">
+          <div class="field">
             <label for="p-provincia">Provincia</label>
-            <select id="p-provincia" class="form-control">
+            <select id="p-provincia" class="input">
               <option value="">Seleccioná una provincia</option>
               <option value="Buenos Aires">Buenos Aires</option>
               <option value="CABA">CABA</option>
@@ -76,15 +93,15 @@ export class PerfilView {
               <option value="Tierra del Fuego">Tierra del Fuego</option>
             </select>
           </div>
-          <div class="form-group">
+          <div class="field">
             <label for="p-ciudad">Ciudad</label>
-            <input id="p-ciudad" class="form-control" type="text" placeholder="Ej: Pilar" />
+            <input id="p-ciudad" class="input" type="text" placeholder="Ej: Pilar" />
           </div>
         </div>
 
-        <div class="form-group">
+        <div class="field">
           <label>Palabras clave <span style="font-weight:400;text-transform:none;letter-spacing:0">(presioná Enter para agregar)</span></label>
-          <div class="tags-input-wrapper" id="tags-wrapper">
+          <div class="tags-wrap" id="tags-wrapper">
             <input 
               class="tags-input" 
               id="tags-input" 
@@ -96,7 +113,7 @@ export class PerfilView {
 
         <div style="display:flex;gap:1rem;align-items:center">
           <button type="submit" class="btn btn-primary" id="perfil-save-btn">Guardar perfil</button>
-          <span id="perfil-saving" style="color:var(--color-muted);font-size:0.85rem;display:none">Guardando…</span>
+          <span id="perfil-saving" style="color:var(--ink-3);font-size:0.85rem;display:none">Guardando…</span>
         </div>
       </form>
     `;
@@ -124,6 +141,15 @@ export class PerfilView {
     });
 
     tagsWrapper.addEventListener('click', () => tagsInput.focus());
+
+    document.getElementById('perfil-ai-btn').addEventListener('click', () => {
+      this.#inferirPerfil();
+    });
+
+    ['p-rubro', 'p-provincia', 'p-ciudad'].forEach((id) => {
+      document.getElementById(id).addEventListener('input', () => this.#actualizarPreview());
+      document.getElementById(id).addEventListener('change', () => this.#actualizarPreview());
+    });
 
     document.getElementById('perfil-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -158,6 +184,7 @@ export class PerfilView {
       document.getElementById('p-ciudad').value    = perfil.ciudad || '';
       this.#tags = perfil.palabras_clave || [];
       this.#renderTags();
+      this.#actualizarPreview();
     } catch {
       // No tiene perfil aún — formulario vacío
     }
@@ -169,8 +196,8 @@ export class PerfilView {
     const savingEl   = document.getElementById('perfil-saving');
     const saveBtn    = document.getElementById('perfil-save-btn');
 
-    successMsg.classList.remove('visible');
-    errorMsg.classList.remove('visible');
+    successMsg.classList.remove('show');
+    errorMsg.classList.remove('show');
 
     const datos = {
       nombre_empresa: document.getElementById('p-nombre').value.trim(),
@@ -183,7 +210,7 @@ export class PerfilView {
 
     if (!datos.nombre_empresa || !datos.rubro) {
       errorMsg.textContent = 'El nombre de la empresa y el rubro son requeridos';
-      errorMsg.classList.add('visible');
+      errorMsg.classList.add('show');
       return;
     }
 
@@ -193,14 +220,65 @@ export class PerfilView {
     try {
       await this.#api.savePerfil(datos);
       successMsg.textContent = '✓ Perfil guardado correctamente';
-      successMsg.classList.add('visible');
-      setTimeout(() => successMsg.classList.remove('visible'), 4000);
+      successMsg.classList.add('show');
+      this.#actualizarPreview();
+      setTimeout(() => successMsg.classList.remove('show'), 4000);
     } catch (err) {
       errorMsg.textContent = err.message || 'Error al guardar el perfil';
-      errorMsg.classList.add('visible');
+      errorMsg.classList.add('show');
     } finally {
       savingEl.style.display = 'none';
       saveBtn.disabled = false;
     }
+  }
+
+  #inferirPerfil() {
+    const texto = document.getElementById('p-conversacion').value.trim();
+    if (!texto) return;
+
+    const normalizado = this.#normalizar(texto);
+    const rubros = [
+      ['limpieza', 'Servicios de limpieza'],
+      ['sanitizacion', 'Servicios de limpieza y sanitización'],
+      ['catering', 'Catering y alimentos'],
+      ['alimento', 'Catering y alimentos'],
+      ['software', 'Tecnología y software'],
+      ['sistema', 'Tecnología y software'],
+      ['mantenimiento', 'Mantenimiento y servicios generales'],
+      ['construccion', 'Construcción y obras menores'],
+      ['seguridad', 'Seguridad privada'],
+      ['transporte', 'Transporte y logística'],
+      ['insumo medico', 'Salud e insumos médicos'],
+    ];
+
+    const provincias = ['Buenos Aires', 'CABA', 'Córdoba', 'Santa Fe', 'Mendoza', 'Tucumán', 'Entre Ríos', 'Salta', 'Misiones', 'Chaco', 'Corrientes', 'Neuquén', 'Río Negro', 'Chubut', 'San Luis'];
+    const ciudades = ['Pilar', 'Rosario', 'Mendoza', 'Córdoba', 'La Plata', 'Mar del Plata', 'Bahía Blanca', 'Neuquén', 'Salta', 'Tucumán'];
+
+    const rubroDetectado = rubros.find(([clave]) => normalizado.includes(clave))?.[1] || 'Servicios generales';
+    const provinciaDetectada = provincias.find((prov) => normalizado.includes(this.#normalizar(prov))) || '';
+    const ciudadDetectada = ciudades.find((ciudad) => normalizado.includes(this.#normalizar(ciudad))) || '';
+    const keywordsBase = ['limpieza', 'mantenimiento', 'alimentos', 'insumos', 'software', 'seguridad', 'transporte', 'sanitización', 'repuestos', 'construcción', 'catering'];
+    const keywords = keywordsBase.filter((word) => normalizado.includes(this.#normalizar(word)));
+
+    document.getElementById('p-rubro').value = rubroDetectado;
+    document.getElementById('p-descripcion').value = texto;
+    if (provinciaDetectada) document.getElementById('p-provincia').value = provinciaDetectada;
+    if (ciudadDetectada) document.getElementById('p-ciudad').value = ciudadDetectada;
+    this.#tags = [...new Set([...keywords, ...rubroDetectado.toLowerCase().split(/\s+/).filter((w) => w.length > 4)])].slice(0, 10);
+    this.#renderTags();
+    this.#actualizarPreview();
+  }
+
+  #actualizarPreview() {
+    const rubro = document.getElementById('p-rubro')?.value || 'A completar';
+    const provincia = document.getElementById('p-provincia')?.value || '';
+    const ciudad = document.getElementById('p-ciudad')?.value || '';
+    document.getElementById('profile-rubro-preview').textContent = rubro || 'A completar';
+    document.getElementById('profile-zona-preview').textContent = [ciudad, provincia].filter(Boolean).join(', ') || 'A completar';
+    document.getElementById('profile-keywords-preview').textContent = this.#tags.slice(0, 3).join(', ') || 'A completar';
+  }
+
+  #normalizar(value) {
+    return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   }
 }

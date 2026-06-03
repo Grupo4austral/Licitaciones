@@ -5,7 +5,7 @@ services:
   - type: web
     name: licitia-backend
     runtime: node
-    rootDir: backend
+    rootDir: .
     buildCommand: npm install
     startCommand: node server.js
     envVars:

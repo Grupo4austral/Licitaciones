@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { supabase } from '../config/supabase.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { supabase } from './supabase.js';
+import { authMiddleware } from './auth.js';
 
 export const perfilRouter = Router();
 
@@ -85,21 +85,43 @@ perfilRouter.post('/', authMiddleware, async (req, res) => {
   }
 
   try {
-    // Upsert: si existe lo actualiza, si no, lo crea
+    const payload = {
+      nombre_empresa,
+      rubro,
+      descripcion: descripcion || null,
+      provincia: provincia || null,
+      ciudad: ciudad || null,
+      palabras_clave: palabras_clave || [],
+    };
+
+    const { data: perfilExistente, error: fetchError } = await supabase
+      .from('perfiles_empresa')
+      .select('usuario_id')
+      .eq('usuario_id', req.user.id)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+
+    if (perfilExistente) {
+      const { data, error } = await supabase
+        .from('perfiles_empresa')
+        .update(payload)
+        .eq('usuario_id', req.user.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return res.json(data);
+    }
+
     const { data, error } = await supabase
       .from('perfiles_empresa')
-      .upsert(
-        {
-          usuario_id: req.user.id,
-          nombre_empresa,
-          rubro,
-          descripcion,
-          provincia,
-          ciudad,
-          palabras_clave: palabras_clave || [],
-        },
-        { onConflict: 'usuario_id' }
-      )
+      .insert({
+        ...payload,
+        usuario_id: req.user.id,
+        cuit: req.user.cuit,
+        email: req.user.email,
+      })
       .select()
       .single();
 

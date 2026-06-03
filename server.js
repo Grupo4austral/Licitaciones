@@ -14,18 +14,24 @@ import cors                   from 'cors';
 import { createServer }       from 'http';
 import swaggerUi              from 'swagger-ui-express';
 import dotenv                 from 'dotenv';
+import path                   from 'path';
+import { fileURLToPath }      from 'url';
 
-import { swaggerSpec }        from './config/swagger.js';
-import { wsManager }          from './services/websocket.js';
-import { datosGobArService }  from './services/datosGobAr.js';
+import { swaggerSpec }        from './swagger.js';
+import { wsManager }          from './websocket.js';
+import { datosGobArService }  from './datosGobAr.js';
 
-import { authRouter }         from './routes/auth.js';
-import { licitacionesRouter } from './routes/licitaciones.js';
-import { perfilRouter }       from './routes/perfil.js';
-import { favoritosRouter }    from './routes/favoritos.js';
-import { alertasRouter }      from './routes/alertas.js';
+import { authRouter }         from './authRoutes.js';
+import { licitacionesRouter } from './licitaciones.js';
+import { perfilRouter }       from './perfil.js';
+import { favoritosRouter }    from './favoritos.js';
+import { alertasRouter }      from './alertas.js';
+import { assistantRouter }    from './assistant.js';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ── Express ────────────────────────────────────────────────────────────────────
 const app = express();
@@ -37,6 +43,13 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// En producción Render puede servir también el frontend estático desde este
+// mismo servicio. Las rutas /api quedan por debajo y no se mezclan.
+app.use(express.static(__dirname, {
+  extensions: ['html'],
+  index: false,
+}));
 
 // ── Swagger ────────────────────────────────────────────────────────────────────
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
@@ -51,6 +64,7 @@ app.use('/api/licitaciones', licitacionesRouter);
 app.use('/api/perfil',       perfilRouter);
 app.use('/api/favoritos',    favoritosRouter);
 app.use('/api/alertas',      alertasRouter);
+app.use('/api/asistente',    assistantRouter);
 
 // Health check — útil para Render y monitoreo
 app.get('/api/health', (_req, res) => {
@@ -60,6 +74,14 @@ app.get('/api/health', (_req, res) => {
     wsConectados:     wsManager.clientesConectados,
     entorno:          process.env.NODE_ENV || 'development',
   });
+});
+
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.get('/index.html', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // ── 404 ────────────────────────────────────────────────────────────────────────

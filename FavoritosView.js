@@ -16,13 +16,18 @@ export class FavoritosView {
   }
 
   async #loadFavoritos() {
-    this.#container.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+    this.#container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
 
     try {
       const favoritos = await this.#api.getFavoritos();
       this.#render(favoritos);
     } catch (err) {
-      this.#container.innerHTML = `<p style="color:var(--color-muted)">Error al cargar favoritos: ${err.message}</p>`;
+      this.#container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">★</div>
+          <div class="empty-title">No pudimos cargar favoritos</div>
+          <p>${err.message}</p>
+        </div>`;
     }
   }
 
@@ -30,8 +35,8 @@ export class FavoritosView {
     if (!favoritos.length) {
       this.#container.innerHTML = `
         <div class="empty-state">
-          <div class="empty-state-icon">★</div>
-          <h3>No tenés favoritos aún</h3>
+          <div class="empty-icon">★</div>
+          <div class="empty-title">No tenés favoritos aún</div>
           <p>Guardá licitaciones con el ícono de estrella para encontrarlas acá fácilmente</p>
         </div>
       `;
@@ -39,7 +44,7 @@ export class FavoritosView {
     }
 
     const grid = document.createElement('div');
-    grid.className = 'licitacion-grid';
+    grid.className = 'lic-grid';
 
     favoritos.forEach(fav => {
       const lic = fav.licitaciones;
@@ -89,8 +94,8 @@ export class FavoritosView {
           if (!grid.children.length) {
             this.#container.innerHTML = `
               <div class="empty-state">
-                <div class="empty-state-icon">★</div>
-                <h3>No tenés favoritos aún</h3>
+                <div class="empty-icon">★</div>
+                <div class="empty-title">No tenés favoritos aún</div>
                 <p>Guardá licitaciones con el ícono de estrella para encontrarlas acá</p>
               </div>
             `;
@@ -103,7 +108,7 @@ export class FavoritosView {
       grid.appendChild(card);
     });
 
-    this.#container.innerHTML = `<p class="section-subtitle" style="margin-bottom:1rem">${favoritos.length} licitación${favoritos.length !== 1 ? 'es' : ''} guardada${favoritos.length !== 1 ? 's' : ''}</p>`;
+    this.#container.innerHTML = `<p class="section-sub" style="margin-bottom:1rem">${favoritos.length} licitación${favoritos.length !== 1 ? 'es' : ''} guardada${favoritos.length !== 1 ? 's' : ''}</p>`;
     this.#container.appendChild(grid);
   }
 
