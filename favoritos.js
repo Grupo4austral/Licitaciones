@@ -92,7 +92,20 @@ favoritosRouter.post('/', authMiddleware, async (req, res) => {
 
     if (error) {
       if (error.code === '23505') {
-        return res.status(409).json({ error: 'Esta licitación ya está en tus favoritos' });
+        const { data: existente, error: favError } = await supabase
+          .from('favoritos')
+          .select(`
+            id,
+            licitacion_id,
+            creado_en,
+            licitaciones (*)
+          `)
+          .eq('usuario_id', req.user.id)
+          .eq('licitacion_id', licitacion_id)
+          .single();
+
+        if (favError) throw favError;
+        return res.status(200).json(existente);
       }
       throw error;
     }
@@ -172,27 +185,41 @@ async function guardarLicitacionExterna(licitacion, externalId) {
     .limit(1)
     .maybeSingle();
   if (fetchError) throw fetchError;
-  if (existente) return existente;
+
+  const payload = {
+    fuente: recortar(licitacion.fuente || 'COMPR.AR', 100),
+    titulo: licitacion.titulo,
+    organismo: recortar(licitacion.organismo, 200),
+    descripcion: licitacion.descripcion || null,
+    rubro: recortar(licitacion.rubro, 100),
+    provincia: recortar(licitacion.provincia, 100),
+    fecha_publicacion: normalizarFecha(licitacion.fecha_publicacion),
+    fecha_cierre: normalizarFecha(licitacion.fecha_cierre),
+    presupuesto_estimado: normalizarMonto(licitacion.presupuesto_estimado),
+    url_original: url,
+    datos_originales: {
+      ...(existente?.datos_originales || {}),
+      ...(licitacion.datos_originales || {}),
+      numero_proceso: numero,
+      external_id: externalId,
+    },
+  };
+
+  if (existente) {
+    const { data, error } = await supabase
+      .from('licitaciones')
+      .update(payload)
+      .eq('id', existente.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
 
   const { data, error } = await supabase
     .from('licitaciones')
-    .insert({
-      fuente: recortar(licitacion.fuente || 'COMPR.AR', 100),
-      titulo: licitacion.titulo,
-      organismo: recortar(licitacion.organismo, 200),
-      descripcion: licitacion.descripcion || null,
-      rubro: recortar(licitacion.rubro, 100),
-      provincia: recortar(licitacion.provincia, 100),
-      fecha_publicacion: licitacion.fecha_publicacion || null,
-      fecha_cierre: licitacion.fecha_cierre || null,
-      presupuesto_estimado: normalizarMonto(licitacion.presupuesto_estimado),
-      url_original: url,
-      datos_originales: {
-        ...(licitacion.datos_originales || {}),
-        numero_proceso: numero,
-        external_id: externalId,
-      },
-    })
+    .insert(payload)
     .select()
     .single();
 
@@ -210,4 +237,14 @@ function normalizarMonto(value) {
   if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function normalizarFecha(value) {
+  if (!value) return null;
+  const text = String(value);
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const ar = text.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (ar) return `${ar[3]}-${ar[2]}-${ar[1]}`;
+  return null;
 }

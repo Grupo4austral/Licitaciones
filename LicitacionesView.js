@@ -293,11 +293,18 @@ export class LicitacionesView {
   }
 
   #diasRestantes(fecha) {
+    fecha = this.#normalizarFecha(fecha);
     if (!fecha) return null;
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
     const cierre = new Date(`${fecha}T00:00:00`);
     return Math.ceil((cierre - hoy) / 86_400_000);
+  }
+
+  #normalizarFecha(value) {
+    if (!value) return null;
+    const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
   }
 
   #fechaLocalISO(date) {
