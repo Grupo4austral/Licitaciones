@@ -5,9 +5,11 @@ import { recordatoriosFavoritosService } from './recordatorios.js';
 
 export const alertasRouter = Router();
 
-alertasRouter.post('/recordatorios/run', authMiddleware, async (_req, res) => {
+alertasRouter.post('/recordatorios/run', authMiddleware, async (req, res) => {
   try {
-    const resultado = await recordatoriosFavoritosService.checkAndNotify();
+    const resultado = await recordatoriosFavoritosService.checkAndNotify({
+      forceEmail: req.query.forceEmail === 'true',
+    });
     return res.json({ mensaje: 'Revisión de recordatorios ejecutada', resultado });
   } catch (err) {
     return res.status(500).json({ error: 'Error al ejecutar recordatorios', detalle: err.message });

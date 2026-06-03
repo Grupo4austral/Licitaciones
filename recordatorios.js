@@ -22,7 +22,7 @@ class RecordatoriosFavoritosService {
     this.#timer = null;
   }
 
-  async checkAndNotify() {
+  async checkAndNotify({ forceEmail = false } = {}) {
     if (this.#running) return { running: true };
     this.#running = true;
     const stats = {
@@ -70,26 +70,30 @@ class RecordatoriosFavoritosService {
         }
 
         const yaExiste = await this.#yaTieneRecordatorio(fav.usuario_id, lic.id);
-        if (yaExiste) {
+        if (yaExiste && !forceEmail) {
           stats.yaTenianRecordatorio++;
           continue;
         }
 
         const mensaje = this.#mensaje(lic, dias);
-        const { error: insertError } = await supabase.from('alertas').insert({
-          usuario_id: fav.usuario_id,
-          licitacion_id: lic.id,
-          mensaje,
-          leida: false,
-        });
+        if (!yaExiste) {
+          const { error: insertError } = await supabase.from('alertas').insert({
+            usuario_id: fav.usuario_id,
+            licitacion_id: lic.id,
+            mensaje,
+            leida: false,
+          });
 
-        if (insertError) throw insertError;
-        stats.alertasCreadas++;
+          if (insertError) throw insertError;
+          stats.alertasCreadas++;
 
-        wsManager.notificarNuevaLicitacion(fav.usuario_id, {
-          ...lic,
-          titulo: `Recordatorio: ${lic.titulo}`,
-        });
+          wsManager.notificarNuevaLicitacion(fav.usuario_id, {
+            ...lic,
+            titulo: `Recordatorio: ${lic.titulo}`,
+          });
+        } else {
+          stats.yaTenianRecordatorio++;
+        }
 
         const enviado = await this.#enviarEmail({ perfil, lic, dias, mensaje });
         if (enviado.ok) stats.emailsEnviados++;
