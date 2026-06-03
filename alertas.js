@@ -1,8 +1,18 @@
 import { Router } from 'express';
 import { supabase } from './supabase.js';
 import { authMiddleware } from './auth.js';
+import { recordatoriosFavoritosService } from './recordatorios.js';
 
 export const alertasRouter = Router();
+
+alertasRouter.post('/recordatorios/run', authMiddleware, async (_req, res) => {
+  try {
+    await recordatoriosFavoritosService.checkAndNotify();
+    return res.json({ mensaje: 'Revisión de recordatorios ejecutada' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al ejecutar recordatorios', detalle: err.message });
+  }
+});
 
 /**
  * @swagger

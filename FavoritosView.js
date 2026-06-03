@@ -70,19 +70,26 @@ export class FavoritosView {
 
       card.innerHTML = `
         <div class="lic-card-top">
-          <div class="lic-title">${lic.titulo}</div>
+          <div class="lic-title">${this.#esc(lic.titulo)}</div>
           <button class="lic-fav-btn active" data-id="${lic.id}" title="Quitar de favoritos">★</button>
         </div>
-        <div class="lic-organismo">${lic.organismo || '—'}</div>
+        <div class="lic-organismo">${this.#esc(lic.organismo || '—')}</div>
         <div class="lic-meta" style="margin-top:0.5rem">
-          ${lic.rubro ? `<span class="card-tag">${lic.rubro}</span>` : ''}
-          ${lic.provincia ? `<span class="card-tag">📍 ${lic.provincia}</span>` : ''}
+          ${lic.rubro ? `<span class="card-tag">${this.#esc(lic.rubro)}</span>` : ''}
+          ${lic.provincia ? `<span class="card-tag">📍 ${this.#esc(lic.provincia)}</span>` : ''}
         </div>
         <div class="lic-footer">
           <span class="lic-presupuesto">${presupuesto}</span>
           ${diasLabel ? `<span class="lic-dias ${diasClass}">⏱ ${diasLabel}</span>` : ''}
         </div>
       `;
+
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.lic-fav-btn')) return;
+        document.dispatchEvent(new CustomEvent('licitia:ver-licitacion', {
+          detail: { id: lic.id, lic },
+        }));
+      });
 
       // Quitar favorito
       card.querySelector('.lic-fav-btn').addEventListener('click', async (e) => {
@@ -110,6 +117,14 @@ export class FavoritosView {
 
     this.#container.innerHTML = `<p class="section-sub" style="margin-bottom:1rem">${favoritos.length} licitación${favoritos.length !== 1 ? 'es' : ''} guardada${favoritos.length !== 1 ? 's' : ''}</p>`;
     this.#container.appendChild(grid);
+  }
+
+  #esc(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   async refresh() {

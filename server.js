@@ -20,6 +20,7 @@ import { fileURLToPath }      from 'url';
 import { swaggerSpec }        from './swagger.js';
 import { wsManager }          from './websocket.js';
 import { datosGobArService }  from './datosGobAr.js';
+import { recordatoriosFavoritosService } from './recordatorios.js';
 
 import { authRouter }         from './authRoutes.js';
 import { licitacionesRouter } from './licitaciones.js';
@@ -111,6 +112,7 @@ httpServer.listen(PORT, () => {
   // Arranca un polling cada 5 minutos que trae licitaciones nuevas,
   // las persiste en Supabase y notifica a usuarios compatibles por WebSocket.
   datosGobArService.start();
+  recordatoriosFavoritosService.start();
 });
 
 // Shutdown graceful (Ctrl+C, SIGTERM de Render/Heroku)
@@ -118,6 +120,7 @@ process.on('SIGTERM', () => {
   console.log('\n[Server] SIGTERM recibido. Cerrando...');
   wsManager.cerrar();
   datosGobArService.stop();
+  recordatoriosFavoritosService.stop();
   httpServer.close(() => process.exit(0));
 });
 
